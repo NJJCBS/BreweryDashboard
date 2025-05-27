@@ -1,19 +1,42 @@
 import { useEffect, useState } from 'react';
 
+// 1️⃣ Chart.js registration
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
+
 export default function Home() {
   const [tankData, setTankData] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnjm0';
+      const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnbm0';
       const range = 'A1:ZZ1000';
       const apiKey = 'AIzaSyDIcqb7GydD5J5H9O_psCdL1vmH5Lka4l8';
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`;
 
       try {
-        const response = await fetch(url);
-        const result = await response.json();
-        const rows = result.values;
+        const res = await fetch(url);
+        const json = await res.json();
+        const rows = json.values;
         if (!rows || rows.length < 2) return;
 
         const headers = rows[0];
@@ -23,12 +46,12 @@ export default function Home() {
           return obj;
         });
 
-        const desiredTanks = [
+        const tanks = [
           'FV1','FV2','FV3','FV4','FV5','FV6','FV7',
           'FV8','FV9','FV10','FVL1','FVL2','FVL3'
         ];
 
-        const parseAussieDate = ds => {
+        const parseDate = ds => {
           if (!ds) return new Date(0);
           const [d,m,y] = ds.split(/[/\s:]+/).map((v,i) => i<3 ? +v : null);
           return new Date(y, m-1, d);
@@ -58,56 +81,66 @@ export default function Home() {
         };
 
         const map = {};
-        desiredTanks.forEach(tank => {
+        tanks.forEach(tank => {
           const entries = data.filter(e => e['Daily_Tank_Data.FVFerm'] === tank);
           if (!entries.length) {
             map[tank] = { tank, isEmpty: false };
             return;
           }
 
-          const sorted = entries.sort(
-            (a,b) =>
-              parseAussieDate(b['DateFerm']) -
-              parseAussieDate(a['DateFerm'])
-          );
-          const latest = sorted[0];
+          // sort by DateFerm ascending
+          const sorted = entries
+            .map(e => ({
+              ...e,
+              parsedDate: parseDate(e['DateFerm']),
+            }))
+            .filter(e => e.parsedDate > 0)
+            .sort((a,b) => a.parsedDate - b.parsedDate);
+
+          const latest = sorted[sorted.length - 1];
           const batch = latest['EX'];
           const sheetUrl = latest['EY'];
           const stage = latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
 
-          // Total volume in batch
-          const totalVol = data
-            .filter(e => e['EX'] === batch)
-            .reduce(
-              (sum,e) =>
-                sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
-              0
-            );
+          // 2️⃣ Build gravity history for this batch
+          const history = data
+            .filter(e => e['EX'] === batch && e['Daily_Tank_Data.GravityFerm'])
+            .map(e => ({
+              date: parseDate(e['DateFerm']),
+              gravity: parseFloat(e['Daily_Tank_Data.GravityFerm'])
+            }))
+            .filter(h => !isNaN(h.gravity))
+            .sort((a,b) => a.date - b.date);
 
-          // Avg OE
+          // 3️⃣ Compute avgOE for starting point
           const OEs = data
             .filter(e => e['EX'] === batch)
             .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
             .filter(v => !isNaN(v));
           const avgOE = OEs.length
-            ? OEs.reduce((a,b) => a+b,0)/OEs.length
-            : NaN;
+            ? OEs.reduce((a,b) => a+b, 0) / OEs.length
+            : null;
 
-          // AE from latest tank data
-          const latestTank = sorted.find(
-            e =>
-              e['Daily_Tank_Data.GravityFerm'] ||
-              e['Daily_Tank_Data.pHFerm']
-          ) || latest;
-          const ae = parseFloat(latestTank['Daily_Tank_Data.GravityFerm']);
+          // Prepend OG as first point
+          const chartLabels = [];
+          const chartData = [];
+          if (avgOE !== null) {
+            chartLabels.push('OG');
+            chartData.push(avgOE);
+          }
+          history.forEach(h => {
+            chartLabels.push(h.date.toLocaleDateString('en-AU'));
+            chartData.push(h.gravity);
+          });
 
-          // Calculate ABVs
-          const leg = calcLegacy(avgOE, ae);
-          const neu = calcNew(avgOE, ae);
-          const avgABV =
-            leg !== null && neu !== null
-              ? ((leg + neu) / 2).toFixed(1)
-              : null;
+          // 4️⃣ ABV calc (Average of legacy & new)
+          const ae = history.length ? history[history.length - 1].gravity : NaN;
+          const leg = avgOE !== null ? calcLegacy(avgOE, ae) : null;
+          const neu = avgOE !== null ? calcNew(avgOE, ae) : null;
+          let avgABV = null;
+          if (leg !== null && neu !== null) {
+            avgABV = ((leg + neu) / 2).toFixed(1);
+          }
 
           // Bright tank volume
           const transfer = data.find(
@@ -119,8 +152,6 @@ export default function Home() {
             ? transfer['Transfer_Data.Final_Tank_Volume']
             : 'N/A';
 
-          const carb = latest['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
-          const dox = latest['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
           const hasPack = data.some(
             e =>
               e['EX'] === batch &&
@@ -134,20 +165,30 @@ export default function Home() {
             batch,
             sheetUrl,
             stage,
-            gravity: latestTank['Daily_Tank_Data.GravityFerm'],
-            pH: latestTank['Daily_Tank_Data.pHFerm'],
-            carbonation: carb,
-            doxygen: dox,
-            totalVolume: totalVol,
+            gravity: ae,
+            pH: latest['Daily_Tank_Data.pHFerm'],
+            carbonation: latest['Daily_Tank_Data.Bright_Tank_CarbonationFerm'],
+            doxygen: latest['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'],
+            totalVolume: data
+              .filter(e => e['EX'] === batch)
+              .reduce(
+                (sum,e) =>
+                  sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV'])||0),
+                0
+              ),
             avgABV,
             bbtVolume: bbtVol,
-            isEmpty: hasPack
+            isEmpty: hasPack,
+            chart: {
+              labels: chartLabels,
+              data: chartData
+            }
           };
         });
 
-        setTankData(desiredTanks.map(t => map[t]));
-      } catch (e) {
-        console.error(e);
+        setTankData(tanks.map(t => map[t]));
+      } catch (err) {
+        console.error(err);
       }
     };
 
@@ -168,17 +209,18 @@ export default function Home() {
         tankData.map((t, i) => {
           const {
             tank: name,
-            stage,
-            carbonation,
-            doxygen,
-            gravity,
-            pH,
             batch,
             sheetUrl,
+            stage,
+            gravity,
+            pH,
+            carbonation,
+            doxygen,
             totalVolume,
             avgABV,
             bbtVolume,
-            isEmpty
+            isEmpty,
+            chart
           } = t;
           const isBrite = stage.toLowerCase().includes('brite');
           const isFerment =
@@ -217,48 +259,51 @@ export default function Home() {
                 </p>
               ) : (
                 <>
-                  <p>
-                    <strong>Stage:</strong> {stage || 'N/A'}
-                  </p>
+                  <p><strong>Stage:</strong> {stage || 'N/A'}</p>
 
                   {isBrite ? (
                     <>
-                      <p>
-                        <strong>Carb:</strong>{' '}
-                        {carbonation
-                          ? `${parseFloat(carbonation).toFixed(2)} vols`
-                          : 'N/A'}
-                      </p>
-                      <p>
-                        <strong>D.O.:</strong>{' '}
-                        {doxygen
-                          ? `${parseFloat(doxygen).toFixed(1)} ppb`
-                          : 'N/A'}
-                      </p>
-                      <p>
-                        <strong>BBT Volume:</strong> {bbtVolume} L
-                      </p>
+                      <p><strong>Carb:</strong> {carbonation ? `${parseFloat(carbonation).toFixed(2)} vols` : 'N/A'}</p>
+                      <p><strong>D.O.:</strong> {doxygen ? `${parseFloat(doxygen).toFixed(1)} ppb` : 'N/A'}</p>
+                      <p><strong>BBT Volume:</strong> {bbtVolume} L</p>
                     </>
                   ) : isFerment ? (
                     <>
-                      <p>
-                        <strong>Gravity:</strong> {gravity || 'N/A'} °P
-                      </p>
-                      <p>
-                        <strong>pH:</strong> {pH || 'N/A'} pH
-                      </p>
-                      <p>
-                        <strong>Tank Volume:</strong> {totalVolume} L
-                      </p>
+                      <p><strong>Gravity:</strong> {gravity || 'N/A'} °P</p>
+                      <p><strong>pH:</strong> {pH || 'N/A'} pH</p>
+                      <p><strong>Tank Volume:</strong> {totalVolume} L</p>
                     </>
                   ) : (
                     <p>No Data</p>
                   )}
 
                   {avgABV && (
-                    <p>
-                      <strong>ABV:</strong> {avgABV}%  
-                    </p>
+                    <p><strong>ABV:</strong> {avgABV}%</p>
+                  )}
+
+                  {/* 5️⃣ Plot the fermentation curve */}
+                  {chart && chart.data.length > 1 && (
+                    <Line
+                      data={{
+                        labels: chart.labels,
+                        datasets: [
+                          {
+                            label: 'Gravity (°P)',
+                            data: chart.data,
+                            tension: 0.4,
+                            fill: false
+                          }
+                        ]
+                      }}
+                      options={{
+                        plugins: { legend: { display: false } },
+                        scales: {
+                          x: { title: { display: true, text: 'Date' } },
+                          y: { title: { display: true, text: '°P' } }
+                        }
+                      }}
+                      height={150}
+                    />
                   )}
                 </>
               )}
