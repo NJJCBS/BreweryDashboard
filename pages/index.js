@@ -59,7 +59,7 @@ export default function Home() {
               .filter(e => e['EX'] === batch)
               .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
               .filter(val => !isNaN(val));
-            const avgOG = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
+            const avgOE = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
 
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
@@ -67,16 +67,14 @@ export default function Home() {
             const latestDailyTankDataEntry = sortedEntries.find(e =>
               e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
             ) || latestEntry;
-            const fg = parseFloat(latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm']);
+            const AE = parseFloat(latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm']);
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
 
-            // Correct ABV calculation
+            // Calculate ABV using correct formula
             let abv = 'N/A';
-            if (!isNaN(avgOG) && !isNaN(fg)) {
-              const numerator = 1 + (avgOG / (258.6 - ((avgOG / 258.2) * 227.1))) - fg;
-              const denominator = 1.775 - (1 + (avgOG / (258.6 - ((avgOG / 258.2) * 227.1))));
-              abv = (76.08 * (numerator / denominator)) * (fg / 0.794);
+            if (!isNaN(avgOE) && !isNaN(AE) && avgOE !== 0) {
+              abv = ((avgOE - AE) / ((2.0665 - 0.010665) * avgOE)) * 100; // Multiply by 100 for %
               abv = abv.toFixed(2);
             }
 
