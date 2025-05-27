@@ -30,30 +30,34 @@ export default function Home() {
         });
 
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Remove time
+
+        const parseAussieDate = (dateStr) => {
+          if (!dateStr) return new Date(0);
+          const parts = dateStr.split(/[/\s:]+/);
+          // DD/MM/YYYY or DD/MM/YYYY HH:MM:SS
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(parts[2], 10);
+          return new Date(year, month, day);
+        };
 
         const tankMap = {};
 
         desiredTanks.forEach(tank => {
-          // Filter entries for this tank
           const tankEntries = data.filter(entry => entry['Daily_Tank_Data.FVFerm'] === tank);
 
           if (tankEntries.length > 0) {
-            // Sort entries for this tank by DateFerm descending
-            const sortedEntries = tankEntries.sort((a, b) => new Date(b['DateFerm']) - new Date(a['DateFerm']));
+            const sortedEntries = tankEntries.sort((a, b) => parseAussieDate(b['DateFerm']) - parseAussieDate(a['DateFerm']));
 
-            // Pick the latest entry for this tank (whether or not it's today)
-            const latestEntry = sortedEntries[0];
-
-            // However, if there's an entry for today, prefer that
             const todayEntry = sortedEntries.find(entry => {
-              const date = entry['DateFerm'] ? entry['DateFerm'].split('T')[0] : '';
-              return date === today;
+              const entryDate = parseAussieDate(entry['DateFerm']);
+              return entryDate.getTime() === today.getTime();
             });
 
-            const chosenEntry = todayEntry || latestEntry;
+            const chosenEntry = todayEntry || sortedEntries[0];
 
-            // Calculate total batch volume for this batch code
             const batch = chosenEntry['EX'];
             const totalVolume = data
               .filter(e => e['EX'] === batch)
@@ -61,7 +65,6 @@ export default function Home() {
 
             tankMap[tank] = { ...chosenEntry, totalBatchVolume: totalVolume };
           } else {
-            // No data for this tank
             tankMap[tank] = { 'Daily_Tank_Data.FVFerm': tank, totalBatchVolume: 0 };
           }
         });
