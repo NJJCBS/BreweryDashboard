@@ -32,6 +32,7 @@ const Line = dynamic(
 export default function Home() {
   const [tankData, setTankData] = useState([])
   const [error, setError] = useState(false)
+  const [modalChart, setModalChart] = useState(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -64,7 +65,7 @@ export default function Home() {
 
         const parseDate = ds => {
           if (!ds) return new Date(0)
-          const [d,m,y] = ds.split(/[/\s:]+/).map((v,i) => i < 3 ? +v : null)
+          const [d, m, y] = ds.split(/[/\s:]+/).map((v,i) => i < 3 ? +v : null)
           return new Date(y, m - 1, d)
         }
 
@@ -78,7 +79,7 @@ export default function Home() {
           const num = OE - AE
           const den = 2.0665 - 0.010665 * OE
           if (!den) return null
-          return num / den  // e.g. 4.26
+          return num / den
         }
 
         const calcNew = (OE, AE) => {
@@ -93,9 +94,7 @@ export default function Home() {
 
         const map = {}
         tanks.forEach(tank => {
-          const entries = data.filter(
-            e => e['Daily_Tank_Data.FVFerm'] === tank
-          )
+          const entries = data.filter(e => e['Daily_Tank_Data.FVFerm'] === tank)
           if (!entries.length) {
             map[tank] = { tank, isEmpty: false }
             return
@@ -103,20 +102,16 @@ export default function Home() {
 
           // sort by DateFerm ascending
           const sorted = entries
-            .map(e => ({
-              ...e,
-              parsedDate: parseDate(e['DateFerm'])
-            }))
+            .map(e => ({ ...e, parsedDate: parseDate(e['DateFerm']) }))
             .filter(e => e.parsedDate > 0)
             .sort((a, b) => a.parsedDate - b.parsedDate)
 
           const latest = sorted[sorted.length - 1]
           const batch = latest['EX']
           const sheetUrl = latest['EY']
-          const stage =
-            latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
+          const stage = latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
 
-          // Build gravity history
+          // build gravity history
           const history = data
             .filter(
               e =>
@@ -125,25 +120,21 @@ export default function Home() {
             )
             .map(e => ({
               date: parseDate(e['DateFerm']),
-              gravity: parseFloat(
-                e['Daily_Tank_Data.GravityFerm']
-              )
+              gravity: parseFloat(e['Daily_Tank_Data.GravityFerm'])
             }))
             .filter(h => !isNaN(h.gravity))
             .sort((a, b) => a.date - b.date)
 
-          // Compute avg OE
+          // compute avgOE
           const OEs = data
             .filter(e => e['EX'] === batch)
-            .map(e =>
-              parseFloat(e['Brewing_Day_Data.Original_Gravity'])
-            )
+            .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
             .filter(v => !isNaN(v))
           const avgOE = OEs.length
             ? OEs.reduce((a, b) => a + b, 0) / OEs.length
             : null
 
-          // Build chart data
+          // build chart labels & data
           const labels = []
           const chartData = []
           if (avgOE !== null) {
@@ -155,9 +146,11 @@ export default function Home() {
             chartData.push(h.gravity)
           })
 
-          // Calculate ABV
+          // calculate ABV
           const ae =
-            history.length > 0 ? history[history.length - 1].gravity : NaN
+            history.length > 0
+              ? history[history.length - 1].gravity
+              : NaN
           const leg = avgOE !== null ? calcLegacy(avgOE, ae) : null
           const neu = avgOE !== null ? calcNew(avgOE, ae) : null
           let avgABV = null
@@ -165,7 +158,7 @@ export default function Home() {
             avgABV = ((leg + neu) / 2).toFixed(1)
           }
 
-          // Bright tank volume
+          // bright tank volume
           const transfer = data.find(
             e =>
               e['EX'] === batch &&
@@ -199,8 +192,9 @@ export default function Home() {
               .reduce(
                 (sum, e) =>
                   sum +
-                  (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) ||
-                    0),
+                  (parseFloat(
+                    e['Brewing_Day_Data.Volume_into_FV']
+                  ) || 0),
                 0
               ),
             avgABV,
@@ -237,161 +231,236 @@ export default function Home() {
   }
 
   return (
-    <div
-      style={{
-        fontFamily: 'Calibri, sans-serif',
-        display: 'grid',
-        gridTemplateColumns:
-          'repeat(auto-fill, minmax(250px, 1fr))',
-        gap: '20px',
-        padding: '20px'
-      }}
-    >
-      {tankData.map((t, i) => {
-        const {
-          tank: name,
-          batch,
-          sheetUrl,
-          stage,
-          gravity,
-          pH,
-          carbonation,
-          doxygen,
-          totalVolume,
-          avgABV,
-          bbtVolume,
-          isEmpty,
-          chart
-        } = t
-        const isBrite = stage.toLowerCase().includes('brite')
-        const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(
-          stage
-        )
-
-        return (
+    <>
+      {/* modal overlay */}
+      {modalChart && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}
+        >
           <div
-            key={i}
             style={{
-              border: '1px solid #ccc',
-              borderRadius: '8px',
-              padding: '10px',
-              background: '#f9f9f9'
+              position: 'relative',
+              background: '#fff',
+              padding: 20,
+              borderRadius: 8,
+              maxWidth: '90%',
+              maxHeight: '90%',
+              overflow: 'auto'
             }}
           >
-            <h3>
-              {name}
-              {batch && (
+            <button
+              onClick={() => setModalChart(null)}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                fontSize: 16,
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              ✕
+            </button>
+            <Line
+              data={{
+                labels: modalChart.labels,
+                datasets: [
+                  {
+                    label: 'Gravity (°P)',
+                    data: modalChart.data,
+                    tension: 0.4,
+                    fill: false
+                  }
+                ]
+              }}
+              options={{
+                aspectRatio: 2,
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: {
+                    title: { display: true, text: 'Date' },
+                    ticks: { display: true },
+                    grid: { display: true }
+                  },
+                  y: {
+                    title: { display: true, text: 'Gravity (°P)' },
+                    beginAtZero: false
+                  }
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* dashboard grid */}
+      <div
+        style={{
+          fontFamily: 'Calibri, sans-serif',
+          display: 'grid',
+          gridTemplateColumns:
+            'repeat(auto-fill, minmax(250px, 1fr))',
+          gap: '20px',
+          padding: '20px'
+        }}
+      >
+        {tankData.map((t, i) => {
+          const {
+            tank: name,
+            batch,
+            sheetUrl,
+            stage,
+            gravity,
+            pH,
+            carbonation,
+            doxygen,
+            totalVolume,
+            avgABV,
+            bbtVolume,
+            isEmpty,
+            chart
+          } = t
+
+          const isBrite = stage
+            .toLowerCase()
+            .includes('brite')
+          const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(
+            stage
+          )
+
+          return (
+            <div
+              key={i}
+              style={{
+                border: '1px solid #ccc',
+                borderRadius: '8px',
+                padding: '10px',
+                background: '#f9f9f9'
+              }}
+            >
+              <h3>
+                {name}
+                {batch && (
+                  <>
+                    {' – '}
+                    <a
+                      href={sheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: '#4A90E2',
+                        textDecoration: 'none'
+                      }}
+                    >
+                      {batch.substring(0, 25)}
+                    </a>
+                  </>
+                )}
+              </h3>
+
+              {isEmpty ? (
+                <p>
+                  <strong>Empty</strong>
+                </p>
+              ) : (
                 <>
-                  {' – '}
-                  <a
-                    href={sheetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      color: '#4A90E2',
-                      textDecoration: 'none'
-                    }}
-                  >
-                    {batch.substring(0, 25)}
-                  </a>
+                  <p>
+                    <strong>Stage:</strong> {stage || 'N/A'}
+                  </p>
+
+                  {isBrite ? (
+                    <>
+                      <p>
+                        <strong>Carb:</strong>{' '}
+                        {carbonation
+                          ? `${parseFloat(
+                              carbonation
+                            ).toFixed(2)} vols`
+                          : 'N/A'}
+                      </p>
+                      <p>
+                        <strong>D.O.:</strong>{' '}
+                        {doxygen
+                          ? `${parseFloat(
+                              doxygen
+                            ).toFixed(1)} ppb`
+                          : 'N/A'}
+                      </p>
+                      <p>
+                        <strong>BBT Volume:</strong> {bbtVolume} L
+                      </p>
+                    </>
+                  ) : isFerment ? (
+                    <>
+                      <p>
+                        <strong>Gravity:</strong>{' '}
+                        {gravity || 'N/A'} °P
+                      </p>
+                      <p>
+                        <strong>pH:</strong> {pH || 'N/A'} pH
+                      </p>
+                      <p>
+                        <strong>Tank Volume:</strong>{' '}
+                        {totalVolume} L
+                      </p>
+                    </>
+                  ) : (
+                    <p>No Data</p>
+                  )}
+
+                  {avgABV && (
+                    <p>
+                      <strong>ABV:</strong> {avgABV}%  
+                    </p>
+                  )}
+
+                  {chart.data.length > 1 && (
+                    <Line
+                      data={{
+                        labels: chart.labels,
+                        datasets: [
+                          {
+                            label: 'Gravity (°P)',
+                            data: chart.data,
+                            tension: 0.4,
+                            fill: false
+                          }
+                        ]
+                      }}
+                      options={{
+                        aspectRatio: 2,                // width is twice height
+                        plugins: { legend: { display: false } },
+                        scales: {
+                          x: {
+                            ticks: { display: false }, // no dates on x-axis
+                            grid: { display: true }     // vertical grid lines
+                          },
+                          y: {
+                            max: chart.data[0]         // scale y-axis to OG
+                          }
+                        }
+                      }}
+                      onClick={() => setModalChart(chart)}
+                    />
+                  )}
                 </>
               )}
-            </h3>
-
-            {isEmpty ? (
-              <p>
-                <strong>Empty</strong>
-              </p>
-            ) : (
-              <>
-                <p>
-                  <strong>Stage:</strong> {stage || 'N/A'}
-                </p>
-
-                {isBrite ? (
-                  <>
-                    <p>
-                      <strong>Carb:</strong>{' '}
-                      {carbonation
-                        ? `${parseFloat(
-                            carbonation
-                          ).toFixed(2)} vols`
-                        : 'N/A'}
-                    </p>
-                    <p>
-                      <strong>D.O.:</strong>{' '}
-                      {doxygen
-                        ? `${parseFloat(
-                            doxygen
-                          ).toFixed(1)} ppb`
-                        : 'N/A'}
-                    </p>
-                    <p>
-                      <strong>BBT Volume:</strong> {bbtVolume} L
-                    </p>
-                  </>
-                ) : isFerment ? (
-                  <>
-                    <p>
-                      <strong>Gravity:</strong>{' '}
-                      {gravity || 'N/A'} °P
-                    </p>
-                    <p>
-                      <strong>pH:</strong> {pH || 'N/A'} pH
-                    </p>
-                    <p>
-                      <strong>Tank Volume:</strong>{' '}
-                      {totalVolume} L
-                    </p>
-                  </>
-                ) : (
-                  <p>No Data</p>
-                )}
-
-                {avgABV && (
-                  <p>
-                    <strong>ABV:</strong> {avgABV}%  
-                  </p>
-                )}
-
-                {chart.data.length > 1 && (
-                  <Line
-                    data={{
-                      labels: chart.labels,
-                      datasets: [
-                        {
-                          label: 'Gravity (°P)',
-                          data: chart.data,
-                          tension: 0.4,
-                          fill: false
-                        }
-                      ]
-                    }}
-                    options={{
-                      plugins: { legend: { display: false } },
-                      scales: {
-                        x: {
-                          title: {
-                            display: true,
-                            text: 'Date'
-                          }
-                        },
-                        y: {
-                          title: {
-                            display: true,
-                            text: '°P'
-                          }
-                        }
-                      }
-                    }}
-                    height={150}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        )
-      })}
-    </div>
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
