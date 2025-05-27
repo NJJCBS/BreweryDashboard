@@ -40,6 +40,33 @@ export default function Home() {
           return new Date(year, month, day);
         };
 
+        // Plato to SG conversion
+        const platoToSG = (p) => {
+          return 1.00001 + (0.0038661 * p) + (0.000013488 * Math.pow(p, 2)) + (0.000000043074 * Math.pow(p, 3));
+        };
+
+        // Legacy ABV formula (OE - AE)
+        const calculateLegacyABV = (OE, AE) => {
+          const numerator = OE - AE;
+          const denominator = 2.0665 - (0.010665 * OE);
+          if (denominator === 0) return 'Error';
+          const abvDecimal = numerator / denominator;
+          return abvDecimal * 100 / 100; // Proper scaling (divide by 100)
+        };
+
+        // SG-based ABV formula
+        const calculateABVFromPlatoViaSG = (OE, AE) => {
+          const OG = platoToSG(OE);
+          const FG = platoToSG(AE);
+          const numerator = 76.08 * (OG - FG);
+          const denominator = 1.775 - OG;
+          if (denominator === 0) return 'Error';
+          const term1 = numerator / denominator;
+          const term2 = FG / 0.794;
+          const abv = term1 * term2;
+          return isNaN(abv) || !isFinite(abv) ? 'Error' : parseFloat(abv.toFixed(2));
+        };
+
         const tankMap = {};
 
         desiredTanks.forEach(tank => {
@@ -55,14 +82,12 @@ export default function Home() {
               .filter(e => e['EX'] === batch)
               .reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
 
-            // Average OE (Original Extract)
             const batchOGs = data
               .filter(e => e['EX'] === batch)
               .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
               .filter(val => !isNaN(val));
             const avgOE = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
 
-            // Latest AE (Apparent Extract)
             const latestDailyTankDataEntry = sortedEntries.find(e =>
               e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
             ) || latestEntry;
@@ -70,17 +95,12 @@ export default function Home() {
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
 
-            // Correct ABV formula
-            let abv = 'N/A';
-            if (!isNaN(avgOE) && !isNaN(ae)) {
-              const numerator = avgOE - ae;
-              const denominator = 2.0665 - (0.010665 * avgOE);
-              if (denominator !== 0) {
-                abv = (numerator / denominator).toFixed(2);
-              } else {
-                abv = 'Error';
-              }
-            }
+            // Calculate both ABVs
+            const legacyABV = calculateLegacyABV(avgOE, ae);
+            const newABV = calculateABVFromPlatoViaSG(avgOE, ae);
+
+            // Calculate weighted average ABV
+            const weightedABV = (legacyABV + newABV) / 2;
 
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
@@ -104,7 +124,7 @@ export default function Home() {
               carbonation,
               doxygen,
               totalVolume,
-              abv,
+              abv: weightedABV.toFixed(2),
               bbtVolume,
               isEmpty: hasPackagingEntry
             };
@@ -165,7 +185,7 @@ export default function Home() {
                   ) : (
                     <p>No Data</p>
                   )}
-                  <p>ABV %: {abv}</p> {/* ABV shown for all tanks */}
+                  <p>ABV %: {abv}</p> {/* Weighted ABV for all tanks */}
                 </>
               )}
             </div>
