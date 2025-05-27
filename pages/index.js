@@ -42,7 +42,6 @@ export default function Home() {
           }
         });
 
-        // Calculate total volume for each batch code
         const batchVolumeMap = {};
         data.forEach(entry => {
           const batch = entry['EX'];
@@ -76,18 +75,34 @@ export default function Home() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px', padding: '20px' }}>
       {tankData.length > 0 ? (
-        tankData.map((tank, index) => (
-          <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9' }}>
-            <h3>
-              {tank['Daily_Tank_Data.FVFerm']}
-              {tank['EX'] ? ` – ${tank['EX'].substring(0, 25)}` : ''}
-            </h3>
-            <p>Stage: {tank['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || 'N/A'}</p>
-            <p>Gravity: {tank['Daily_Tank_Data.GravityFerm'] || 'N/A'} °P</p>
-            <p>pH: {tank['Daily_Tank_Data.pHFerm'] || 'N/A'} pH</p>
-            <p>Total Batch Volume: {tank.totalBatchVolume} L</p>
-          </div>
-        ))
+        tankData.map((tank, index) => {
+          const stage = tank['Daily_Tank_Data.What_Stage_in_the_Product_in_'];
+          const carbonation = tank['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
+          const doxygen = tank['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
+          const isBrite = stage && stage.toLowerCase().includes('brite');
+
+          return (
+            <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9' }}>
+              <h3>
+                {tank['Daily_Tank_Data.FVFerm']}
+                {tank['EX'] ? ` – ${tank['EX'].substring(0, 25)}` : ''}
+              </h3>
+              <p>Stage: {stage || 'N/A'}</p>
+              {isBrite ? (
+                <>
+                  <p>Carbonation: {carbonation ? `${parseFloat(carbonation).toFixed(2)} vols` : 'N/A'}</p>
+                  <p>Dissolved Oxygen: {doxygen ? `${parseFloat(doxygen).toFixed(1)} ppb` : 'N/A'}</p>
+                </>
+              ) : (
+                <>
+                  <p>Gravity: {tank['Daily_Tank_Data.GravityFerm'] || 'N/A'} °P</p>
+                  <p>pH: {tank['Daily_Tank_Data.pHFerm'] || 'N/A'} pH</p>
+                </>
+              )}
+              <p>Total Batch Volume: {tank.totalBatchVolume} L</p>
+            </div>
+          );
+        })
       ) : (
         <p>Loading data...</p>
       )}
