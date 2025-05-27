@@ -6,7 +6,7 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnjm0';
-      const range = 'A1:ZZ1000'; // Adjust range as needed
+      const range = 'A1:ZZ1000'; // Extended range
       const apiKey = 'AIzaSyDIcqb7GydD5J5H9O_psCdL1vmH5Lka4l8';
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`;
 
@@ -29,10 +29,7 @@ export default function Home() {
           return obj;
         });
 
-        // Define the tanks you want to display
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
-
-        // Filter data for desired tanks only and pick the latest entry per tank
         const grouped = {};
         data.forEach(entry => {
           const tank = entry['Daily_Tank_Data.FVFerm'];
@@ -44,7 +41,6 @@ export default function Home() {
           }
         });
 
-        // Ensure all desired tanks are represented (even if missing data)
         const completeData = desiredTanks.map(tank => grouped[tank] || { 'Daily_Tank_Data.FVFerm': tank });
 
         setTankData(completeData);
@@ -62,7 +58,10 @@ export default function Home() {
       {tankData.length > 0 ? (
         tankData.map((tank, index) => (
           <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9' }}>
-            <h3>{tank['Daily_Tank_Data.FVFerm']}</h3>
+            <h3>
+              {tank['Daily_Tank_Data.FVFerm']}
+              {tank['EX'] ? ` – ${tank['EX'].substring(0, 25)}` : ''}
+            </h3>
             <p>Stage: {tank['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || 'N/A'}</p>
             <p>Gravity: {tank['Daily_Tank_Data.GravityFerm'] || 'N/A'} °P</p>
             <p>pH: {tank['Daily_Tank_Data.pHFerm'] || 'N/A'} pH</p>
