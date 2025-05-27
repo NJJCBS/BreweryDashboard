@@ -61,7 +61,7 @@ export default function Home() {
               .filter(e => e['EX'] === batch)
               .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
               .filter(val => !isNaN(val));
-            const avgOG = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length).toFixed(2) : 'N/A';
+            const avgOG = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
 
             // Transfer data for BBT volume
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
@@ -74,6 +74,16 @@ export default function Home() {
 
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
+            const fg = parseFloat(gravity);
+
+            // Calculate ABV %
+            let abv = 'N/A';
+            if (!isNaN(avgOG) && !isNaN(fg)) {
+              abv = (76.08 * (avgOG - fg) / (1.775 - avgOG)) * (fg / 0.794);
+              abv = abv.toFixed(2);
+            }
+
+            // Carbonation & DO
             const carbonation = latestEntry['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
             const doxygen = latestEntry['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
 
@@ -94,12 +104,12 @@ export default function Home() {
               carbonation,
               doxygen,
               totalVolume,
-              avgOG,
+              abv,
               bbtVolume,
               isEmpty: hasPackagingEntry
             };
           } else {
-            tankMap[tank] = { tank, batch: '', sheetUrl: '', stage: '', gravity: '', pH: '', carbonation: '', doxygen: '', totalVolume: 0, avgOG: 'N/A', bbtVolume: 'N/A', isEmpty: false };
+            tankMap[tank] = { tank, batch: '', sheetUrl: '', stage: '', gravity: '', pH: '', carbonation: '', doxygen: '', totalVolume: 0, abv: 'N/A', bbtVolume: 'N/A', isEmpty: false };
           }
         });
 
@@ -118,7 +128,7 @@ export default function Home() {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px', padding: '20px' }}>
       {tankData.length > 0 ? (
         tankData.map((tank, index) => {
-          const { stage, carbonation, doxygen, gravity, pH, batch, sheetUrl, totalVolume, avgOG, bbtVolume, isEmpty } = tank;
+          const { stage, carbonation, doxygen, gravity, pH, batch, sheetUrl, totalVolume, abv, bbtVolume, isEmpty } = tank;
           const isBrite = stage.toLowerCase().includes('brite');
           const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(stage);
 
@@ -151,7 +161,7 @@ export default function Home() {
                       <p>Gravity: {gravity || 'N/A'} °P</p>
                       <p>pH: {pH || 'N/A'} pH</p>
                       <p>Tank Volume: {totalVolume} L</p>
-                      <p>OG: {avgOG} °P</p>
+                      <p>ABV %: {abv}</p>
                     </>
                   ) : (
                     <p>No Data</p>
