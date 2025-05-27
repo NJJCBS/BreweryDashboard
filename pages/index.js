@@ -67,14 +67,13 @@ export default function Home() {
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
 
-            // Latest Gravity and pH from Daily Tank Data
+            // Latest Gravity (FG)
             const latestDailyTankDataEntry = sortedEntries.find(e =>
               e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
             ) || latestEntry;
-
+            const fg = parseFloat(latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm']);
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
-            const fg = parseFloat(gravity);
 
             // Calculate ABV %
             let abv = 'N/A';
@@ -83,11 +82,9 @@ export default function Home() {
               abv = abv.toFixed(2);
             }
 
-            // Carbonation & DO
             const carbonation = latestEntry['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
             const doxygen = latestEntry['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
 
-            // Check for "Packaging Data"
             const hasPackagingEntry = data.some(e =>
               e['EX'] === batch &&
               e['What_are_you_filling_out_today_'] &&
@@ -161,11 +158,11 @@ export default function Home() {
                       <p>Gravity: {gravity || 'N/A'} °P</p>
                       <p>pH: {pH || 'N/A'} pH</p>
                       <p>Tank Volume: {totalVolume} L</p>
-                      <p>ABV %: {abv}</p>
                     </>
                   ) : (
                     <p>No Data</p>
                   )}
+                  <p>ABV %: {abv}</p> {/* ABV is displayed for all tanks */}
                 </>
               )}
             </div>
