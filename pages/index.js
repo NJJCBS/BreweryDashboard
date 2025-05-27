@@ -40,31 +40,28 @@ export default function Home() {
           return new Date(year, month, day);
         };
 
-        // Plato to SG conversion
         const platoToSG = (p) => {
           return 1.00001 + (0.0038661 * p) + (0.000013488 * Math.pow(p, 2)) + (0.000000043074 * Math.pow(p, 3));
         };
 
-        // Legacy ABV formula (OE - AE)
         const calculateLegacyABV = (OE, AE) => {
           const numerator = OE - AE;
           const denominator = 2.0665 - (0.010665 * OE);
-          if (denominator === 0) return 'Error';
+          if (denominator === 0) return null;
           const abvDecimal = numerator / denominator;
-          return abvDecimal * 100 / 100; // Proper scaling (divide by 100)
+          return abvDecimal * 100 / 100;
         };
 
-        // SG-based ABV formula
         const calculateABVFromPlatoViaSG = (OE, AE) => {
           const OG = platoToSG(OE);
           const FG = platoToSG(AE);
           const numerator = 76.08 * (OG - FG);
           const denominator = 1.775 - OG;
-          if (denominator === 0) return 'Error';
+          if (denominator === 0) return null;
           const term1 = numerator / denominator;
           const term2 = FG / 0.794;
           const abv = term1 * term2;
-          return isNaN(abv) || !isFinite(abv) ? 'Error' : parseFloat(abv.toFixed(2));
+          return isNaN(abv) || !isFinite(abv) ? null : parseFloat(abv.toFixed(2));
         };
 
         const tankMap = {};
@@ -95,12 +92,11 @@ export default function Home() {
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
 
-            // Calculate both ABVs
             const legacyABV = calculateLegacyABV(avgOE, ae);
             const newABV = calculateABVFromPlatoViaSG(avgOE, ae);
-
-            // Calculate weighted average ABV
             const weightedABV = (legacyABV + newABV) / 2;
+
+            const displayABV = isNaN(weightedABV) || !isFinite(weightedABV) ? null : weightedABV.toFixed(1);
 
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
@@ -124,12 +120,12 @@ export default function Home() {
               carbonation,
               doxygen,
               totalVolume,
-              abv: weightedABV.toFixed(2),
+              abv: displayABV,
               bbtVolume,
               isEmpty: hasPackagingEntry
             };
           } else {
-            tankMap[tank] = { tank, batch: '', sheetUrl: '', stage: '', gravity: '', pH: '', carbonation: '', doxygen: '', totalVolume: 0, abv: 'N/A', bbtVolume: 'N/A', isEmpty: false };
+            tankMap[tank] = { tank, batch: '', sheetUrl: '', stage: '', gravity: '', pH: '', carbonation: '', doxygen: '', totalVolume: 0, abv: null, bbtVolume: 'N/A', isEmpty: false };
           }
         });
 
@@ -145,7 +141,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px', padding: '20px' }}>
+    <div style={{ fontFamily: 'Calibri, sans-serif', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px', padding: '20px' }}>
       {tankData.length > 0 ? (
         tankData.map((tank, index) => {
           const { stage, carbonation, doxygen, gravity, pH, batch, sheetUrl, totalVolume, abv, bbtVolume, isEmpty } = tank;
@@ -153,7 +149,7 @@ export default function Home() {
           const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(stage);
 
           return (
-            <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9' }}>
+            <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9', fontFamily: 'Calibri, sans-serif' }}>
               <h3>
                 {tank.tank}
                 {batch ? (
@@ -185,7 +181,7 @@ export default function Home() {
                   ) : (
                     <p>No Data</p>
                   )}
-                  <p>ABV %: {abv}</p> {/* Weighted ABV for all tanks */}
+                  {abv && <p>ABV: {abv}%</p>} {/* Display ABV only if available */}
                 </>
               )}
             </div>
