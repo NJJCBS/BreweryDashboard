@@ -1,4 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function Home() {
   const [tankData, setTankData] = useState([]);
@@ -30,7 +34,6 @@ export default function Home() {
         });
 
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
-
         const parseAussieDate = (dateStr) => {
           if (!dateStr) return new Date(0);
           const parts = dateStr.split(/[/\s:]+/);
@@ -40,32 +43,24 @@ export default function Home() {
           return new Date(year, month, day);
         };
 
-        const platoToSG = (p) => {
-          return 1.00001 + (0.0038661 * p) + (0.000013488 * Math.pow(p, 2)) + (0.000000043074 * Math.pow(p, 3));
-        };
-
+        const platoToSG = (p) => 1.00001 + (0.0038661 * p) + (0.000013488 * p ** 2) + (0.000000043074 * p ** 3);
         const calculateLegacyABV = (OE, AE) => {
           const numerator = OE - AE;
           const denominator = 2.0665 - (0.010665 * OE);
           if (denominator === 0) return null;
-          const abvDecimal = numerator / denominator;
-          return abvDecimal;  // Leave as decimal
+          return numerator / denominator;
         };
-
         const calculateABVFromPlatoViaSG = (OE, AE) => {
           const OG = platoToSG(OE);
           const FG = platoToSG(AE);
           const numerator = 76.08 * (OG - FG);
           const denominator = 1.775 - OG;
           if (denominator === 0) return null;
-          const term1 = numerator / denominator;
-          const term2 = FG / 0.794;
-          const abv = term1 * term2;
+          const abv = (numerator / denominator) * (FG / 0.794);
           return isNaN(abv) || !isFinite(abv) ? null : parseFloat(abv);
         };
 
         const tankMap = {};
-
         desiredTanks.forEach(tank => {
           const tankEntries = data.filter(entry => entry['Daily_Tank_Data.FVFerm'] === tank);
           if (tankEntries.length > 0) {
@@ -75,120 +70,72 @@ export default function Home() {
             const sheetUrl = latestEntry['EY'];
             const stage = latestEntry['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
 
-            const totalVolume = data
-              .filter(e => e['EX'] === batch)
-              .reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
-
-            const batchOGs = data
-              .filter(e => e['EX'] === batch)
-              .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
-              .filter(val => !isNaN(val));
+            const totalVolume = data.filter(e => e['EX'] === batch).reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
+            const batchOGs = data.filter(e => e['EX'] === batch).map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity'])).filter(val => !isNaN(val));
             const avgOE = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
-
-            const latestDailyTankDataEntry = sortedEntries.find(e =>
-              e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
-            ) || latestEntry;
+            const latestDailyTankDataEntry = sortedEntries.find(e => e['Daily_Tank_Data.GravityFerm']) || latestEntry;
             const ae = parseFloat(latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm']);
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
-
             const legacyABV = calculateLegacyABV(avgOE, ae);
             const newABV = calculateABVFromPlatoViaSG(avgOE, ae);
             let weightedABV = (legacyABV + newABV) / 2;
             weightedABV = isNaN(weightedABV) || !isFinite(weightedABV) ? null : (weightedABV * 100).toFixed(1);
 
-            const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
-            const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
+            const fermentationData = data.filter(e => e['Daily_Tank_Data.FVFerm'] === tank && e['Daily_Tank_Data.GravityFerm'])
+              .map(e => ({ date: parseAussieDate(e['DateFerm']), gravity: parseFloat(e['Daily_Tank_Data.GravityFerm']) }))
+              .filter(e => !isNaN(e.gravity))
+              .sort((a, b) => a.date - b.date);
+            if (!isNaN(avgOE)) {
+              fermentationData.unshift({ date: parseAussieDate(fermentationData[0]?.date || new Date()), gravity: avgOE });
+            }
 
             const carbonation = latestEntry['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
             const doxygen = latestEntry['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
-
-            const hasPackagingEntry = data.some(e =>
-              e['EX'] === batch &&
-              e['What_are_you_filling_out_today_'] &&
-              e['What_are_you_filling_out_today_'].toLowerCase().includes('packaging data')
-            );
+            const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
+            const hasPackagingEntry = data.some(e => e['EX'] === batch && e['What_are_you_filling_out_today_']?.toLowerCase().includes('packaging data'));
 
             tankMap[tank] = {
-              tank,
-              batch,
-              sheetUrl,
-              stage,
-              gravity,
-              pH,
-              carbonation,
-              doxygen,
-              totalVolume,
-              abv: weightedABV,
-              bbtVolume,
-              isEmpty: hasPackagingEntry
+              tank, batch, sheetUrl, stage, gravity, pH, carbonation, doxygen, totalVolume,
+              abv: weightedABV, bbtVolume: transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A',
+              isEmpty: hasPackagingEntry, fermentationData
             };
           } else {
-            tankMap[tank] = { tank, batch: '', sheetUrl: '', stage: '', gravity: '', pH: '', carbonation: '', doxygen: '', totalVolume: 0, abv: null, bbtVolume: 'N/A', isEmpty: false };
+            tankMap[tank] = { tank, isEmpty: false };
           }
         });
-
-        const finalData = desiredTanks.map(tank => tankMap[tank]);
-        setTankData(finalData);
-
+        setTankData(desiredTanks.map(tank => tankMap[tank]));
       } catch (error) {
-        console.error('Error fetching Google Sheets data:', error);
+        console.error('Error fetching data:', error);
       }
     };
-
     fetchData();
   }, []);
 
   return (
     <div style={{ fontFamily: 'Calibri, sans-serif', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px', padding: '20px' }}>
-      {tankData.length > 0 ? (
-        tankData.map((tank, index) => {
-          const { stage, carbonation, doxygen, gravity, pH, batch, sheetUrl, totalVolume, abv, bbtVolume, isEmpty } = tank;
-          const isBrite = stage.toLowerCase().includes('brite');
-          const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(stage);
-
-          return (
-            <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9', fontFamily: 'Calibri, sans-serif' }}>
-              <h3>
-                {tank.tank}
-                {batch ? (
-                  <>
-                    {' – '}
-                    <a href={sheetUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#4A90E2', textDecoration: 'none' }}>
-                      {batch.substring(0, 25)}
-                    </a>
-                  </>
-                ) : ''}
-              </h3>
-              {isEmpty ? (
-                <p><strong>Empty</strong></p>
-              ) : (
-                <>
-                  <p><strong>Stage:</strong> {stage || 'N/A'}</p>
-                  {isBrite ? (
-                    <>
-                      <p><strong>Carb:</strong> {carbonation ? `${parseFloat(carbonation).toFixed(2)} vols` : 'N/A'}</p>
-                      <p><strong>D.O.:</strong> {doxygen ? `${parseFloat(doxygen).toFixed(1)} ppb` : 'N/A'}</p>
-                      <p><strong>BBT Volume:</strong> {bbtVolume} L</p>
-                    </>
-                  ) : isFerment ? (
-                    <>
-                      <p><strong>Gravity:</strong> {gravity || 'N/A'} °P</p>
-                      <p><strong>pH:</strong> {pH || 'N/A'} pH</p>
-                      <p><strong>Tank Volume:</strong> {totalVolume} L</p>
-                    </>
-                  ) : (
-                    <p>No Data</p>
-                  )}
-                  {abv && <p><strong>ABV:</strong> {abv}%</p>}
-                </>
-              )}
-            </div>
-          );
-        })
-      ) : (
-        <p>Loading data...</p>
-      )}
+      {tankData.length > 0 ? tankData.map((tank, index) => (
+        <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9' }}>
+          <h3>{tank.tank}{tank.batch ? <> – <a href={tank.sheetUrl} target="_blank" style={{ color: '#4A90E2', textDecoration: 'none' }}>{tank.batch.substring(0, 25)}</a></> : ''}</h3>
+          {tank.isEmpty ? <p><strong>Empty</strong></p> : <>
+            <p><strong>Stage:</strong> {tank.stage || 'N/A'}</p>
+            {tank.stage?.toLowerCase().includes('brite') ? <>
+              <p><strong>Carb:</strong> {tank.carbonation ? `${parseFloat(tank.carbonation).toFixed(2)} vols` : 'N/A'}</p>
+              <p><strong>D.O.:</strong> {tank.doxygen ? `${parseFloat(tank.doxygen).toFixed(1)} ppb` : 'N/A'}</p>
+              <p><strong>BBT Volume:</strong> {tank.bbtVolume} L</p>
+            </> : <>
+              <p><strong>Gravity:</strong> {tank.gravity || 'N/A'} °P</p>
+              <p><strong>pH:</strong> {tank.pH || 'N/A'} pH</p>
+              <p><strong>Tank Volume:</strong> {tank.totalVolume} L</p>
+            </>}
+            {tank.abv && <p><strong>ABV:</strong> {tank.abv}%</p>}
+            {tank.fermentationData && <Line data={{
+              labels: tank.fermentationData.map(e => e.date.toLocaleDateString()),
+              datasets: [{ label: 'Gravity (°P)', data: tank.fermentationData.map(e => e.gravity), fill: false, borderColor: '#4A90E2', tension: 0.1 }]
+            }} options={{ responsive: true, plugins: { legend: { display: false } } }} />}
+          </>}
+        </div>
+      )) : <p>Loading data...</p>}
     </div>
   );
 }
