@@ -49,7 +49,7 @@ export default function Home() {
           const denominator = 2.0665 - (0.010665 * OE);
           if (denominator === 0) return null;
           const abvDecimal = numerator / denominator;
-          return abvDecimal * 100 / 100;
+          return abvDecimal;  // Leave as decimal fraction representing ABV (e.g., 0.05 for 5%)
         };
 
         const calculateABVFromPlatoViaSG = (OE, AE) => {
@@ -61,7 +61,7 @@ export default function Home() {
           const term1 = numerator / denominator;
           const term2 = FG / 0.794;
           const abv = term1 * term2;
-          return isNaN(abv) || !isFinite(abv) ? null : parseFloat(abv.toFixed(2));
+          return isNaN(abv) || !isFinite(abv) ? null : abv;
         };
 
         const tankMap = {};
@@ -94,9 +94,10 @@ export default function Home() {
 
             const legacyABV = calculateLegacyABV(avgOE, ae);
             const newABV = calculateABVFromPlatoViaSG(avgOE, ae);
-            const weightedABV = (legacyABV + newABV) / 2;
-
-            const displayABV = isNaN(weightedABV) || !isFinite(weightedABV) ? null : weightedABV.toFixed(1);
+            let weightedABV = null;
+            if (!isNaN(legacyABV) && !isNaN(newABV) && legacyABV !== null && newABV !== null) {
+              weightedABV = ((legacyABV * 100) + newABV) / 2;  // Convert legacyABV from decimal to percentage
+            }
 
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
@@ -120,7 +121,7 @@ export default function Home() {
               carbonation,
               doxygen,
               totalVolume,
-              abv: displayABV,
+              abv: weightedABV !== null ? weightedABV.toFixed(1) : null,
               bbtVolume,
               isEmpty: hasPackagingEntry
             };
@@ -155,7 +156,7 @@ export default function Home() {
                 {batch ? (
                   <>
                     {' – '}
-                    <a href={sheetUrl} target="_blank" rel="noopener noreferrer">
+                    <a href={sheetUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#4A90E2', textDecoration: 'none' }}>
                       {batch.substring(0, 25)}
                     </a>
                   </>
@@ -165,23 +166,23 @@ export default function Home() {
                 <p><strong>Empty</strong></p>
               ) : (
                 <>
-                  <p>Stage: {stage || 'N/A'}</p>
+                  <p><strong>Stage:</strong> {stage || 'N/A'}</p>
                   {isBrite ? (
                     <>
-                      <p>Carb: {carbonation ? `${parseFloat(carbonation).toFixed(2)} vols` : 'N/A'}</p>
-                      <p>D.O.: {doxygen ? `${parseFloat(doxygen).toFixed(1)} ppb` : 'N/A'}</p>
-                      <p>BBT Volume: {bbtVolume} L</p>
+                      <p><strong>Carb:</strong> {carbonation ? `${parseFloat(carbonation).toFixed(2)} vols` : 'N/A'}</p>
+                      <p><strong>D.O.:</strong> {doxygen ? `${parseFloat(doxygen).toFixed(1)} ppb` : 'N/A'}</p>
+                      <p><strong>BBT Volume:</strong> {bbtVolume} L</p>
                     </>
                   ) : isFerment ? (
                     <>
-                      <p>Gravity: {gravity || 'N/A'} °P</p>
-                      <p>pH: {pH || 'N/A'} pH</p>
-                      <p>Tank Volume: {totalVolume} L</p>
+                      <p><strong>Gravity:</strong> {gravity || 'N/A'} °P</p>
+                      <p><strong>pH:</strong> {pH || 'N/A'} pH</p>
+                      <p><strong>Tank Volume:</strong> {totalVolume} L</p>
                     </>
                   ) : (
                     <p>No Data</p>
                   )}
-                  {abv && <p>ABV: {abv}%</p>} {/* Display ABV only if available */}
+                  {abv && <p><strong>ABV:</strong> {abv}%</p>}
                 </>
               )}
             </div>
@@ -193,3 +194,4 @@ export default function Home() {
     </div>
   );
 }
+
