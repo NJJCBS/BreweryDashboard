@@ -55,43 +55,39 @@ export default function Home() {
               .filter(e => e['EX'] === batch)
               .reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
 
-            // --- Calculate Average OE (Original Gravity) ---
+            // Average OE (Original Extract)
             const batchOGs = data
               .filter(e => e['EX'] === batch)
               .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
               .filter(val => !isNaN(val));
             const avgOE = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
 
-            // --- Get Latest AE (Final Gravity) from latest Daily_Tank_Data row ---
+            // Latest AE (Apparent Extract)
             const latestDailyTankDataEntry = sortedEntries.find(e =>
               e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
             ) || latestEntry;
-            const fg = parseFloat(latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm']);
+            const ae = parseFloat(latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm']);
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
 
-            // --- Calculate ABV using the precise formula ---
+            // Correct ABV formula
             let abv = 'N/A';
-            if (!isNaN(avgOE) && !isNaN(fg)) {
-              const numerator = avgOE - fg;
+            if (!isNaN(avgOE) && !isNaN(ae)) {
+              const numerator = avgOE - ae;
               const denominator = 2.0665 - (0.010665 * avgOE);
               if (denominator !== 0) {
-                abv = (numerator / denominator) * 100; // Convert to %
-                abv = abv.toFixed(2);
+                abv = (numerator / denominator).toFixed(2);
               } else {
                 abv = 'Error';
               }
             }
 
-            // --- Transfer Data for BBT Volume ---
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
 
-            // --- Carbonation & DO ---
             const carbonation = latestEntry['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
             const doxygen = latestEntry['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
 
-            // --- Check for Packaging Data ---
             const hasPackagingEntry = data.some(e =>
               e['EX'] === batch &&
               e['What_are_you_filling_out_today_'] &&
@@ -169,7 +165,7 @@ export default function Home() {
                   ) : (
                     <p>No Data</p>
                   )}
-                  <p>ABV %: {abv}</p> {/* ABV displayed for all tanks */}
+                  <p>ABV %: {abv}</p> {/* ABV shown for all tanks */}
                 </>
               )}
             </div>
