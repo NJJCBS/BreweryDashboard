@@ -14,18 +14,12 @@ export default function Home() {
         const response = await fetch(url);
         const result = await response.json();
         const rows = result.values;
-
-        if (!rows || rows.length < 2) {
-          console.log('No data found.');
-          return;
-        }
+        if (!rows || rows.length < 2) return;
 
         const headers = rows[0];
         const data = rows.slice(1).map(row => {
           const obj = {};
-          headers.forEach((header, idx) => {
-            obj[header] = row[idx] || '';
-          });
+          headers.forEach((h, i) => (obj[h] = row[i] || ''));
           return obj;
         });
 
@@ -34,13 +28,10 @@ export default function Home() {
           'FV8','FV9','FV10','FVL1','FVL2','FVL3'
         ];
 
-        const parseAussieDate = dateStr => {
-          if (!dateStr) return new Date(0);
-          const parts = dateStr.split(/[/\s:]+/);
-          const day = parseInt(parts[0], 10);
-          const month = parseInt(parts[1], 10) - 1;
-          const year = parseInt(parts[2], 10);
-          return new Date(year, month, day);
+        const parseAussieDate = ds => {
+          if (!ds) return new Date(0);
+          const [d,m,y] = ds.split(/[/\s:]+/).map((v,i) => i<3 ? +v : null);
+          return new Date(y, m-1, d);
         };
 
         const platoToSG = p =>
@@ -49,149 +40,114 @@ export default function Home() {
           0.000013488 * p * p +
           0.000000043074 * p * p * p;
 
-        // Legacy formula now returns a percentage directly
-        const calculateLegacyABV = (OE, AE) => {
-          const numerator = OE - AE;
-          const denominator = 2.0665 - 0.010665 * OE;
-          if (denominator === 0) return null;
-          return numerator / denominator; // e.g. 4.26 for 4.26%
+        const calcLegacy = (OE, AE) => {
+          const num = OE - AE;
+          const den = 2.0665 - 0.010665 * OE;
+          if (!den) return null;
+          return num / den; // e.g. 4.26
         };
 
-        const calculateABVFromPlatoViaSG = (OE, AE) => {
+        const calcNew = (OE, AE) => {
           const OG = platoToSG(OE);
           const FG = platoToSG(AE);
-          const numerator = 76.08 * (OG - FG);
-          const denominator = 1.775 - OG;
-          if (denominator === 0) return null;
-          const abv = (numerator / denominator) * (FG / 0.794);
-          return isNaN(abv) || !isFinite(abv) ? null : abv; // e.g. 4.57
+          const num = 76.08 * (OG - FG);
+          const den = 1.775 - OG;
+          if (!den) return null;
+          const abv = (num / den) * (FG / 0.794);
+          return isFinite(abv) ? abv : null;
         };
 
-        const tankMap = {};
-
+        const map = {};
         desiredTanks.forEach(tank => {
           const entries = data.filter(e => e['Daily_Tank_Data.FVFerm'] === tank);
-          if (entries.length > 0) {
-            const sorted = entries.sort(
-              (a, b) =>
-                parseAussieDate(b['DateFerm']) -
-                parseAussieDate(a['DateFerm'])
-            );
-            const latest = sorted[0];
-            const batch = latest['EX'];
-            const sheetUrl = latest['EY'];
-            const stage = latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
-
-            // Total volume for this batch
-            const totalVolume = data
-              .filter(e => e['EX'] === batch)
-              .reduce(
-                (sum, e) =>
-                  sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
-                0
-              );
-
-            // Average original extract (OE) for batch
-            const batchOGs = data
-              .filter(e => e['EX'] === batch)
-              .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
-              .filter(v => !isNaN(v));
-            const avgOE = batchOGs.length
-              ? batchOGs.reduce((a, b) => a + b, 0) / batchOGs.length
-              : NaN;
-
-            // Latest actual extract (AE)
-            const latestTankData =
-              sorted.find(
-                e =>
-                  e['Daily_Tank_Data.GravityFerm'] ||
-                  e['Daily_Tank_Data.pHFerm']
-              ) || latest;
-            const ae = parseFloat(
-              latestTankData['Daily_Tank_Data.GravityFerm']
-            );
-            const gravity = latestTankData['Daily_Tank_Data.GravityFerm'];
-            const pH = latestTankData['Daily_Tank_Data.pHFerm'];
-
-            // Calculate ABVs
-            const legacyABVDecimal = calculateLegacyABV(avgOE, ae);
-            const legacyABV =
-              legacyABVDecimal !== null
-                ? legacyABVDecimal.toFixed(1)
-                : null;
-            const newABV = calculateABVFromPlatoViaSG(avgOE, ae);
-            let avgABV = null;
-            if (
-              legacyABVDecimal !== null &&
-              newABV !== null &&
-              !isNaN(newABV)
-            ) {
-              avgABV = ((legacyABVDecimal + newABV) / 2).toFixed(1);
-            }
-
-            // Bright tank volume
-            const transfer = data.find(
-              e =>
-                e['EX'] === batch &&
-                e['Transfer_Data.Final_Tank_Volume']
-            );
-            const bbtVolume = transfer
-              ? transfer['Transfer_Data.Final_Tank_Volume']
-              : 'N/A';
-
-            const carbonation =
-              latest['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
-            const doxygen =
-              latest['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
-
-            const hasPackaging = data.some(
-              e =>
-                e['EX'] === batch &&
-                e['What_are_you_filling_out_today_'] &&
-                e['What_are_you_filling_out_today_']
-                  .toLowerCase()
-                  .includes('packaging data')
-            );
-
-            tankMap[tank] = {
-              tank,
-              batch,
-              sheetUrl,
-              stage,
-              gravity,
-              pH,
-              carbonation,
-              doxygen,
-              totalVolume,
-              legacyABV,
-              newABV: newABV !== null ? newABV.toFixed(1) : null,
-              avgABV,
-              bbtVolume,
-              isEmpty: hasPackaging
-            };
-          } else {
-            tankMap[tank] = {
-              tank,
-              batch: '',
-              sheetUrl: '',
-              stage: '',
-              gravity: '',
-              pH: '',
-              carbonation: '',
-              doxygen: '',
-              totalVolume: 0,
-              legacyABV: null,
-              newABV: null,
-              avgABV: null,
-              bbtVolume: 'N/A',
-              isEmpty: false
-            };
+          if (!entries.length) {
+            map[tank] = { tank, isEmpty: false };
+            return;
           }
+
+          const sorted = entries.sort(
+            (a,b) =>
+              parseAussieDate(b['DateFerm']) -
+              parseAussieDate(a['DateFerm'])
+          );
+          const latest = sorted[0];
+          const batch = latest['EX'];
+          const sheetUrl = latest['EY'];
+          const stage = latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
+
+          // Total volume in batch
+          const totalVol = data
+            .filter(e => e['EX'] === batch)
+            .reduce(
+              (sum,e) =>
+                sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
+              0
+            );
+
+          // Avg OE
+          const OEs = data
+            .filter(e => e['EX'] === batch)
+            .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
+            .filter(v => !isNaN(v));
+          const avgOE = OEs.length
+            ? OEs.reduce((a,b) => a+b,0)/OEs.length
+            : NaN;
+
+          // AE from latest tank data
+          const latestTank = sorted.find(
+            e =>
+              e['Daily_Tank_Data.GravityFerm'] ||
+              e['Daily_Tank_Data.pHFerm']
+          ) || latest;
+          const ae = parseFloat(latestTank['Daily_Tank_Data.GravityFerm']);
+
+          // Calculate ABVs
+          const leg = calcLegacy(avgOE, ae);
+          const neu = calcNew(avgOE, ae);
+          const avgABV =
+            leg !== null && neu !== null
+              ? ((leg + neu) / 2).toFixed(1)
+              : null;
+
+          // Bright tank volume
+          const transfer = data.find(
+            e =>
+              e['EX'] === batch &&
+              e['Transfer_Data.Final_Tank_Volume']
+          );
+          const bbtVol = transfer
+            ? transfer['Transfer_Data.Final_Tank_Volume']
+            : 'N/A';
+
+          const carb = latest['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
+          const dox = latest['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
+          const hasPack = data.some(
+            e =>
+              e['EX'] === batch &&
+              e['What_are_you_filling_out_today_']
+                .toLowerCase()
+                .includes('packaging data')
+          );
+
+          map[tank] = {
+            tank,
+            batch,
+            sheetUrl,
+            stage,
+            gravity: latestTank['Daily_Tank_Data.GravityFerm'],
+            pH: latestTank['Daily_Tank_Data.pHFerm'],
+            carbonation: carb,
+            doxygen: dox,
+            totalVolume: totalVol,
+            avgABV,
+            bbtVolume: bbtVol,
+            isEmpty: hasPack
+          };
         });
 
-        setTankData(desiredTanks.map(t => tankMap[t]));
-      } catch (error) {
-        console.error('Error fetching Google Sheets data:', error);
+        setTankData(desiredTanks.map(t => map[t]));
+      } catch (e) {
+        console.error(e);
       }
     };
 
@@ -209,7 +165,7 @@ export default function Home() {
       }}
     >
       {tankData.length > 0 ? (
-        tankData.map((tank, i) => {
+        tankData.map((t, i) => {
           const {
             tank: name,
             stage,
@@ -220,16 +176,13 @@ export default function Home() {
             batch,
             sheetUrl,
             totalVolume,
-            legacyABV,
-            newABV,
             avgABV,
             bbtVolume,
             isEmpty
-          } = tank;
+          } = t;
           const isBrite = stage.toLowerCase().includes('brite');
-          const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(
-            stage
-          );
+          const isFerment =
+            /fermentation|crashed|d\.h|clean fusion/i.test(stage);
 
           return (
             <div
@@ -302,19 +255,9 @@ export default function Home() {
                     <p>No Data</p>
                   )}
 
-                  {legacyABV && (
-                    <p>
-                      <strong>Legacy ABV:</strong> {legacyABV}%  
-                    </p>
-                  )}
-                  {newABV && (
-                    <p>
-                      <strong>New ABV:</strong> {newABV}%  
-                    </p>
-                  )}
                   {avgABV && (
                     <p>
-                      <strong>Average ABV:</strong> {avgABV}%  
+                      <strong>ABV:</strong> {avgABV}%  
                     </p>
                   )}
                 </>
