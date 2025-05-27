@@ -30,25 +30,18 @@ export default function Home() {
         });
 
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
+        const grouped = {};
 
-        // Map each batch (EX) to its latest entry
-        const batchLatestMap = {};
         data.forEach(entry => {
-          const batch = entry['EX'];
+          const tank = entry['Daily_Tank_Data.FVFerm'];
           const date = new Date(entry['DateFerm']);
-          if (batch) {
-            if (!batchLatestMap[batch] || date > new Date(batchLatestMap[batch]['DateFerm'])) {
-              batchLatestMap[batch] = entry;
+          if (desiredTanks.includes(tank)) {
+            if (!grouped[tank] || date > new Date(grouped[tank]['DateFerm'])) {
+              grouped[tank] = entry;
             }
           }
         });
 
-        // Now, filter to only show entries where the tank matches desired tanks AND is the latest for its batch
-        const uniqueTanksData = Object.values(batchLatestMap).filter(entry =>
-          desiredTanks.includes(entry['Daily_Tank_Data.FVFerm'])
-        );
-
-        // Create a lookup for batch volume
         const batchVolumeMap = {};
         data.forEach(entry => {
           const batch = entry['EX'];
@@ -58,13 +51,18 @@ export default function Home() {
           }
         });
 
-        // Add total volume info
-        const finalData = uniqueTanksData.map(entry => {
-          const batch = entry['EX'];
-          return { ...entry, totalBatchVolume: batchVolumeMap[batch] || 0 };
+        const completeData = desiredTanks.map(tank => {
+          const latestEntry = grouped[tank];
+          if (latestEntry) {
+            const batch = latestEntry['EX'];
+            const totalVolume = batch ? batchVolumeMap[batch] : 0;
+            return { ...latestEntry, totalBatchVolume: totalVolume };
+          } else {
+            return { 'Daily_Tank_Data.FVFerm': tank, totalBatchVolume: 0 };
+          }
         });
 
-        setTankData(finalData);
+        setTankData(completeData);
 
       } catch (error) {
         console.error('Error fetching Google Sheets data:', error);
