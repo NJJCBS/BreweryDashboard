@@ -39,46 +39,34 @@ export default function Home() {
           const tankEntries = data.filter(entry => entry['Daily_Tank_Data.FVFerm'] === tank);
 
           if (tankEntries.length > 0) {
-            // Try to find today's entry
-            const todayEntry = tankEntries.find(entry => {
+            // Sort entries for this tank by DateFerm descending
+            const sortedEntries = tankEntries.sort((a, b) => new Date(b['DateFerm']) - new Date(a['DateFerm']));
+
+            // Pick the latest entry for this tank (whether or not it's today)
+            const latestEntry = sortedEntries[0];
+
+            // However, if there's an entry for today, prefer that
+            const todayEntry = sortedEntries.find(entry => {
               const date = entry['DateFerm'] ? entry['DateFerm'].split('T')[0] : '';
               return date === today;
             });
 
-            if (todayEntry) {
-              tankMap[tank] = todayEntry;
-            } else {
-              // Fallback to latest entry based on DateFerm
-              const latestEntry = tankEntries.reduce((latest, current) => {
-                const latestDate = new Date(latest['DateFerm'] || '1970-01-01');
-                const currentDate = new Date(current['DateFerm'] || '1970-01-01');
-                return currentDate > latestDate ? current : latest;
-              });
-              tankMap[tank] = latestEntry;
-            }
+            const chosenEntry = todayEntry || latestEntry;
+
+            // Calculate total batch volume for this batch code
+            const batch = chosenEntry['EX'];
+            const totalVolume = data
+              .filter(e => e['EX'] === batch)
+              .reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
+
+            tankMap[tank] = { ...chosenEntry, totalBatchVolume: totalVolume };
           } else {
             // No data for this tank
-            tankMap[tank] = { 'Daily_Tank_Data.FVFerm': tank };
+            tankMap[tank] = { 'Daily_Tank_Data.FVFerm': tank, totalBatchVolume: 0 };
           }
         });
 
-        // Calculate total batch volume
-        const batchVolumeMap = {};
-        data.forEach(entry => {
-          const batch = entry['EX'];
-          const volume = parseFloat(entry['Brewing_Day_Data.Volume_into_FV']) || 0;
-          if (batch) {
-            batchVolumeMap[batch] = (batchVolumeMap[batch] || 0) + volume;
-          }
-        });
-
-        // Combine data with batch volumes
-        const finalData = desiredTanks.map(tank => {
-          const entry = tankMap[tank];
-          const batch = entry['EX'];
-          const totalVolume = batch ? batchVolumeMap[batch] : 0;
-          return { ...entry, totalBatchVolume: totalVolume };
-        });
+        const finalData = desiredTanks.map(tank => tankMap[tank]);
 
         setTankData(finalData);
 
