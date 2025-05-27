@@ -79,6 +79,8 @@ export default function Home() {
           const stage = tank['Daily_Tank_Data.What_Stage_in_the_Product_in_'];
           const carbonation = tank['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
           const doxygen = tank['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
+          const gravity = tank['Daily_Tank_Data.GravityFerm'];
+          const pH = tank['Daily_Tank_Data.pHFerm'];
           const isBrite = stage && stage.toLowerCase().includes('brite');
 
           return (
@@ -95,8 +97,8 @@ export default function Home() {
                 </>
               ) : (
                 <>
-                  <p>Gravity: {tank['Daily_Tank_Data.GravityFerm'] || 'N/A'} °P</p>
-                  <p>pH: {tank['Daily_Tank_Data.pHFerm'] || 'N/A'} pH</p>
+                  <p>Gravity: {gravity || 'N/A'} °P</p>
+                  <p>pH: {pH || 'N/A'} pH</p>
                 </>
               )}
               <p>Total Batch Volume: {tank.totalBatchVolume} L</p>
