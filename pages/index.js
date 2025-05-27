@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
 
+// Register Chart.js components
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function Home() {
@@ -82,6 +83,7 @@ export default function Home() {
             let weightedABV = (legacyABV + newABV) / 2;
             weightedABV = isNaN(weightedABV) || !isFinite(weightedABV) ? null : (weightedABV * 100).toFixed(1);
 
+            // 🔥 Collect Fermentation Curve Data
             const fermentationData = data.filter(e => e['Daily_Tank_Data.FVFerm'] === tank && e['Daily_Tank_Data.GravityFerm'])
               .map(e => ({ date: parseAussieDate(e['DateFerm']), gravity: parseFloat(e['Daily_Tank_Data.GravityFerm']) }))
               .filter(e => !isNaN(e.gravity))
@@ -131,7 +133,13 @@ export default function Home() {
             {tank.abv && <p><strong>ABV:</strong> {tank.abv}%</p>}
             {tank.fermentationData && <Line data={{
               labels: tank.fermentationData.map(e => e.date.toLocaleDateString()),
-              datasets: [{ label: 'Gravity (°P)', data: tank.fermentationData.map(e => e.gravity), fill: false, borderColor: '#4A90E2', tension: 0.1 }]
+              datasets: [{
+                label: 'Gravity (°P)',
+                data: tank.fermentationData.map(e => e.gravity),
+                fill: false,
+                borderColor: '#4A90E2',
+                tension: 0.1
+              }]
             }} options={{ responsive: true, plugins: { legend: { display: false } } }} />}
           </>}
         </div>
