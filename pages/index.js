@@ -51,23 +51,19 @@ export default function Home() {
             const sheetUrl = latestEntry['EY'];
             const stage = latestEntry['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
 
-            // Total batch volume
             const totalVolume = data
               .filter(e => e['EX'] === batch)
               .reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
 
-            // Average OG for the batch
             const batchOGs = data
               .filter(e => e['EX'] === batch)
               .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
               .filter(val => !isNaN(val));
             const avgOG = batchOGs.length > 0 ? (batchOGs.reduce((sum, val) => sum + val, 0) / batchOGs.length) : NaN;
 
-            // Transfer data for BBT volume
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
 
-            // Latest Gravity (FG)
             const latestDailyTankDataEntry = sortedEntries.find(e =>
               e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
             ) || latestEntry;
@@ -75,10 +71,12 @@ export default function Home() {
             const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
             const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
 
-            // Calculate ABV %
+            // Correct ABV calculation
             let abv = 'N/A';
             if (!isNaN(avgOG) && !isNaN(fg)) {
-              abv = (76.08 * (avgOG - fg) / (1.775 - avgOG)) * (fg / 0.794);
+              const numerator = 1 + (avgOG / (258.6 - ((avgOG / 258.2) * 227.1))) - fg;
+              const denominator = 1.775 - (1 + (avgOG / (258.6 - ((avgOG / 258.2) * 227.1))));
+              abv = (76.08 * (numerator / denominator)) * (fg / 0.794);
               abv = abv.toFixed(2);
             }
 
@@ -162,7 +160,7 @@ export default function Home() {
                   ) : (
                     <p>No Data</p>
                   )}
-                  <p>ABV %: {abv}</p> {/* ABV is displayed for all tanks */}
+                  <p>ABV %: {abv}</p> {/* ABV shown for all tanks */}
                 </>
               )}
             </div>
