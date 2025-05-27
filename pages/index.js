@@ -49,7 +49,7 @@ export default function Home() {
           const denominator = 2.0665 - (0.010665 * OE);
           if (denominator === 0) return null;
           const abvDecimal = numerator / denominator;
-          return abvDecimal;  // Leave as decimal fraction representing ABV (e.g., 0.05 for 5%)
+          return abvDecimal * 100;  // Convert to percentage properly
         };
 
         const calculateABVFromPlatoViaSG = (OE, AE) => {
@@ -96,7 +96,7 @@ export default function Home() {
             const newABV = calculateABVFromPlatoViaSG(avgOE, ae);
             let weightedABV = null;
             if (!isNaN(legacyABV) && !isNaN(newABV) && legacyABV !== null && newABV !== null) {
-              weightedABV = ((legacyABV * 100) + newABV) / 2;  // Convert legacyABV from decimal to percentage
+              weightedABV = ((legacyABV + newABV) / 2).toFixed(1);
             }
 
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
@@ -121,7 +121,7 @@ export default function Home() {
               carbonation,
               doxygen,
               totalVolume,
-              abv: weightedABV !== null ? weightedABV.toFixed(1) : null,
+              abv: weightedABV,
               bbtVolume,
               isEmpty: hasPackagingEntry
             };
@@ -194,4 +194,3 @@ export default function Home() {
     </div>
   );
 }
-
