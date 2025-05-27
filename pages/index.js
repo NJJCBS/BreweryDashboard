@@ -30,18 +30,39 @@ export default function Home() {
         });
 
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
-        const grouped = {};
+        const today = new Date().toISOString().split('T')[0];
 
-        data.forEach(entry => {
-          const tank = entry['Daily_Tank_Data.FVFerm'];
-          const date = new Date(entry['DateFerm']);
-          if (desiredTanks.includes(tank)) {
-            if (!grouped[tank] || date > new Date(grouped[tank]['DateFerm'])) {
-              grouped[tank] = entry;
+        const tankMap = {};
+
+        desiredTanks.forEach(tank => {
+          // Filter entries for this tank
+          const tankEntries = data.filter(entry => entry['Daily_Tank_Data.FVFerm'] === tank);
+
+          if (tankEntries.length > 0) {
+            // Try to find today's entry
+            const todayEntry = tankEntries.find(entry => {
+              const date = entry['DateFerm'] ? entry['DateFerm'].split('T')[0] : '';
+              return date === today;
+            });
+
+            if (todayEntry) {
+              tankMap[tank] = todayEntry;
+            } else {
+              // Fallback to latest entry based on DateFerm
+              const latestEntry = tankEntries.reduce((latest, current) => {
+                const latestDate = new Date(latest['DateFerm'] || '1970-01-01');
+                const currentDate = new Date(current['DateFerm'] || '1970-01-01');
+                return currentDate > latestDate ? current : latest;
+              });
+              tankMap[tank] = latestEntry;
             }
+          } else {
+            // No data for this tank
+            tankMap[tank] = { 'Daily_Tank_Data.FVFerm': tank };
           }
         });
 
+        // Calculate total batch volume
         const batchVolumeMap = {};
         data.forEach(entry => {
           const batch = entry['EX'];
@@ -51,18 +72,15 @@ export default function Home() {
           }
         });
 
-        const completeData = desiredTanks.map(tank => {
-          const latestEntry = grouped[tank];
-          if (latestEntry) {
-            const batch = latestEntry['EX'];
-            const totalVolume = batch ? batchVolumeMap[batch] : 0;
-            return { ...latestEntry, totalBatchVolume: totalVolume };
-          } else {
-            return { 'Daily_Tank_Data.FVFerm': tank, totalBatchVolume: 0 };
-          }
+        // Combine data with batch volumes
+        const finalData = desiredTanks.map(tank => {
+          const entry = tankMap[tank];
+          const batch = entry['EX'];
+          const totalVolume = batch ? batchVolumeMap[batch] : 0;
+          return { ...entry, totalBatchVolume: totalVolume };
         });
 
-        setTankData(completeData);
+        setTankData(finalData);
 
       } catch (error) {
         console.error('Error fetching Google Sheets data:', error);
