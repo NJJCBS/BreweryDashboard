@@ -12,7 +12,7 @@ import {
   Legend
 } from 'chart.js'
 
-// 1️⃣ Register Chart.js components
+// 1️⃣ Register Chart.js
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -23,7 +23,7 @@ ChartJS.register(
   Legend
 )
 
-// 2️⃣ Dynamically import the React wrapper so it only runs in the browser
+// 2️⃣ Dynamically import the React wrapper (client-only)
 const Line = dynamic(
   () => import('react-chartjs-2').then(mod => mod.Line),
   { ssr: false }
@@ -65,7 +65,7 @@ export default function Home() {
 
         const parseDate = ds => {
           if (!ds) return new Date(0)
-          const [d, m, y] = ds.split(/[/\s:]+/).map((v,i) => i < 3 ? +v : null)
+          const [d, m, y] = ds.split(/[/\s:]+/).map((v, i) => (i < 3 ? +v : null))
           return new Date(y, m - 1, d)
         }
 
@@ -94,7 +94,9 @@ export default function Home() {
 
         const map = {}
         tanks.forEach(tank => {
-          const entries = data.filter(e => e['Daily_Tank_Data.FVFerm'] === tank)
+          const entries = data.filter(
+            e => e['Daily_Tank_Data.FVFerm'] === tank
+          )
           if (!entries.length) {
             map[tank] = { tank, isEmpty: false }
             return
@@ -102,14 +104,18 @@ export default function Home() {
 
           // sort by DateFerm ascending
           const sorted = entries
-            .map(e => ({ ...e, parsedDate: parseDate(e['DateFerm']) }))
+            .map(e => ({
+              ...e,
+              parsedDate: parseDate(e['DateFerm'])
+            }))
             .filter(e => e.parsedDate > 0)
             .sort((a, b) => a.parsedDate - b.parsedDate)
 
           const latest = sorted[sorted.length - 1]
           const batch = latest['EX']
           const sheetUrl = latest['EY']
-          const stage = latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
+          const stage =
+            latest['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
 
           // build gravity history
           const history = data
@@ -128,7 +134,9 @@ export default function Home() {
           // compute avgOE
           const OEs = data
             .filter(e => e['EX'] === batch)
-            .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
+            .map(e =>
+              parseFloat(e['Brewing_Day_Data.Original_Gravity'])
+            )
             .filter(v => !isNaN(v))
           const avgOE = OEs.length
             ? OEs.reduce((a, b) => a + b, 0) / OEs.length
@@ -145,6 +153,24 @@ export default function Home() {
             labels.push(h.date.toLocaleDateString('en-AU'))
             chartData.push(h.gravity)
           })
+
+          // get latest pH
+          const pHHistory = data
+            .filter(
+              e =>
+                e['EX'] === batch &&
+                e['Daily_Tank_Data.pHFerm']
+            )
+            .map(e => ({
+              date: parseDate(e['DateFerm']),
+              pH: parseFloat(e['Daily_Tank_Data.pHFerm'])
+            }))
+            .filter(h => !isNaN(h.pH))
+            .sort((a, b) => a.date - b.date)
+          const pHValue =
+            pHHistory.length
+              ? pHHistory[pHHistory.length - 1].pH
+              : null
 
           // calculate ABV
           const ae =
@@ -181,8 +207,11 @@ export default function Home() {
             batch,
             sheetUrl,
             stage,
-            gravity: ae,
-            pH: latest['Daily_Tank_Data.pHFerm'],
+            gravity:
+              history.length > 0
+                ? history[history.length - 1].gravity
+                : null,
+            pH: pHValue,
             carbonation:
               latest['Daily_Tank_Data.Bright_Tank_CarbonationFerm'],
             doxygen:
@@ -232,7 +261,7 @@ export default function Home() {
 
   return (
     <>
-      {/* modal overlay */}
+      {/* Modal for detailed graph */}
       {modalChart && (
         <div
           style={{
@@ -305,7 +334,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* dashboard grid */}
+      {/* Dashboard */}
       <div
         style={{
           fontFamily: 'Calibri, sans-serif',
@@ -332,7 +361,6 @@ export default function Home() {
             isEmpty,
             chart
           } = t
-
           const isBrite = stage
             .toLowerCase()
             .includes('brite')
@@ -388,7 +416,7 @@ export default function Home() {
                           ? `${parseFloat(
                               carbonation
                             ).toFixed(2)} vols`
-                          : 'N/A'}
+                          : ''}
                       </p>
                       <p>
                         <strong>D.O.:</strong>{' '}
@@ -396,7 +424,7 @@ export default function Home() {
                           ? `${parseFloat(
                               doxygen
                             ).toFixed(1)} ppb`
-                          : 'N/A'}
+                          : ''}
                       </p>
                       <p>
                         <strong>BBT Volume:</strong> {bbtVolume} L
@@ -406,14 +434,15 @@ export default function Home() {
                     <>
                       <p>
                         <strong>Gravity:</strong>{' '}
-                        {gravity || 'N/A'} °P
+                        {gravity != null ? `${gravity} °P` : ''}
                       </p>
+                      {pH != null && (
+                        <p>
+                          <strong>pH:</strong> {pH} pH
+                        </p>
+                      )}
                       <p>
-                        <strong>pH:</strong> {pH || 'N/A'} pH
-                      </p>
-                      <p>
-                        <strong>Tank Volume:</strong>{' '}
-                        {totalVolume} L
+                        <strong>Tank Volume:</strong> {totalVolume} L
                       </p>
                     </>
                   ) : (
@@ -440,18 +469,19 @@ export default function Home() {
                         ]
                       }}
                       options={{
-                        aspectRatio: 2,                // width is twice height
+                        aspectRatio: 2,
                         plugins: { legend: { display: false } },
                         scales: {
                           x: {
-                            ticks: { display: false }, // no dates on x-axis
-                            grid: { display: true }     // vertical grid lines
+                            ticks: { display: false },
+                            grid: { display: true }
                           },
                           y: {
-                            max: chart.data[0]         // scale y-axis to OG
+                            max: chart.data[0]
                           }
                         }
                       }}
+                      height={150}
                       onClick={() => setModalChart(chart)}
                     />
                   )}
