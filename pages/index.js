@@ -6,7 +6,7 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnjm0';
-      const range = 'A1:ZZ1000'; // Extended range
+      const range = 'A1:ZZ1000';
       const apiKey = 'AIzaSyDIcqb7GydD5J5H9O_psCdL1vmH5Lka4l8';
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`;
 
@@ -31,6 +31,7 @@ export default function Home() {
 
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
         const grouped = {};
+
         data.forEach(entry => {
           const tank = entry['Daily_Tank_Data.FVFerm'];
           const date = new Date(entry['DateFerm']);
@@ -41,7 +42,26 @@ export default function Home() {
           }
         });
 
-        const completeData = desiredTanks.map(tank => grouped[tank] || { 'Daily_Tank_Data.FVFerm': tank });
+        // Calculate total volume for each batch code
+        const batchVolumeMap = {};
+        data.forEach(entry => {
+          const batch = entry['EX'];
+          const volume = parseFloat(entry['Brewing_Day_Data.Volume_into_FV']) || 0;
+          if (batch) {
+            batchVolumeMap[batch] = (batchVolumeMap[batch] || 0) + volume;
+          }
+        });
+
+        const completeData = desiredTanks.map(tank => {
+          const latestEntry = grouped[tank];
+          if (latestEntry) {
+            const batch = latestEntry['EX'];
+            const totalVolume = batch ? batchVolumeMap[batch] : 0;
+            return { ...latestEntry, totalBatchVolume: totalVolume };
+          } else {
+            return { 'Daily_Tank_Data.FVFerm': tank, totalBatchVolume: 0 };
+          }
+        });
 
         setTankData(completeData);
 
@@ -65,7 +85,7 @@ export default function Home() {
             <p>Stage: {tank['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || 'N/A'}</p>
             <p>Gravity: {tank['Daily_Tank_Data.GravityFerm'] || 'N/A'} °P</p>
             <p>pH: {tank['Daily_Tank_Data.pHFerm'] || 'N/A'} pH</p>
-            <p>Volume: {tank['Brewing_Day_Data.Volume_into_FV'] || tank['Transfer_Data.Final_Tank_Volume'] || 'N/A'} L</p>
+            <p>Total Batch Volume: {tank.totalBatchVolume} L</p>
           </div>
         ))
       ) : (
