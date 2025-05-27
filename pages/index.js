@@ -30,8 +30,6 @@ export default function Home() {
         });
 
         const desiredTanks = ['FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7', 'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'];
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
 
         const parseAussieDate = (dateStr) => {
           if (!dateStr) return new Date(0);
@@ -47,22 +45,46 @@ export default function Home() {
         desiredTanks.forEach(tank => {
           const tankEntries = data.filter(entry => entry['Daily_Tank_Data.FVFerm'] === tank);
           if (tankEntries.length > 0) {
+            // Get the latest entry for the tank by DateFerm
             const sortedEntries = tankEntries.sort((a, b) => parseAussieDate(b['DateFerm']) - parseAussieDate(a['DateFerm']));
-            const chosenEntry = sortedEntries[0]; // Always the latest entry for the tank
+            const latestEntry = sortedEntries[0];
+            const batch = latestEntry['EX'];
+            const sheetUrl = latestEntry['EY'];
+            const stage = latestEntry['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
 
-            // Calculate total volume for the batch (for fermentation stages)
-            const batch = chosenEntry['EX'];
+            // Calculate total batch volume
             const totalVolume = data
               .filter(e => e['EX'] === batch)
               .reduce((sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0), 0);
 
-            // Get the corresponding Transfer Data entry for this batch
+            // Get the corresponding Transfer Data entry for BBT volume
             const transferEntry = data.find(e => e['EX'] === batch && e['Transfer_Data.Final_Tank_Volume']);
             const bbtVolume = transferEntry ? transferEntry['Transfer_Data.Final_Tank_Volume'] : 'N/A';
 
-            tankMap[tank] = { ...chosenEntry, totalBatchVolume: totalVolume, bbtVolume };
+            // Extract latest Gravity and pH from Daily Tank Data rows
+            const latestDailyTankDataEntry = sortedEntries.find(e =>
+              e['Daily_Tank_Data.GravityFerm'] || e['Daily_Tank_Data.pHFerm']
+            ) || latestEntry;
+
+            const gravity = latestDailyTankDataEntry['Daily_Tank_Data.GravityFerm'];
+            const pH = latestDailyTankDataEntry['Daily_Tank_Data.pHFerm'];
+            const carbonation = latestEntry['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
+            const doxygen = latestEntry['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
+
+            tankMap[tank] = {
+              tank,
+              batch,
+              sheetUrl,
+              stage,
+              gravity,
+              pH,
+              carbonation,
+              doxygen,
+              totalVolume,
+              bbtVolume
+            };
           } else {
-            tankMap[tank] = { 'Daily_Tank_Data.FVFerm': tank, totalBatchVolume: 0, bbtVolume: 'N/A' };
+            tankMap[tank] = { tank, batch: '', sheetUrl: '', stage: '', gravity: '', pH: '', carbonation: '', doxygen: '', totalVolume: 0, bbtVolume: 'N/A' };
           }
         });
 
@@ -81,28 +103,19 @@ export default function Home() {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px', padding: '20px' }}>
       {tankData.length > 0 ? (
         tankData.map((tank, index) => {
-          const stage = tank['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || '';
+          const { stage, carbonation, doxygen, gravity, pH, batch, sheetUrl, totalVolume, bbtVolume } = tank;
           const isBrite = stage.toLowerCase().includes('brite');
           const isFerment = /fermentation|crashed|d\.h|clean fusion/i.test(stage);
-
-          const carbonation = tank['Daily_Tank_Data.Bright_Tank_CarbonationFerm'];
-          const doxygen = tank['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'];
-          const gravity = tank['Daily_Tank_Data.GravityFerm'];
-          const pH = tank['Daily_Tank_Data.pHFerm'];
-          const ex = tank['EX'];
-          const sheetUrl = tank['EY'];
-          const bbtVolume = tank.bbtVolume;
-          const batchVol = tank.totalBatchVolume;
 
           return (
             <div key={index} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '10px', background: '#f9f9f9' }}>
               <h3>
-                {tank['Daily_Tank_Data.FVFerm']}
-                {ex ? (
+                {tank.tank}
+                {batch ? (
                   <>
                     {' – '}
                     <a href={sheetUrl} target="_blank" rel="noopener noreferrer">
-                      {ex.substring(0, 25)}
+                      {batch.substring(0, 25)}
                     </a>
                   </>
                 ) : ''}
@@ -118,7 +131,7 @@ export default function Home() {
                 <>
                   <p>Gravity: {gravity || 'N/A'} °P</p>
                   <p>pH: {pH || 'N/A'} pH</p>
-                  <p>Tank Volume: {batchVol} L</p>
+                  <p>Tank Volume: {totalVolume} L</p>
                 </>
               ) : (
                 <>
