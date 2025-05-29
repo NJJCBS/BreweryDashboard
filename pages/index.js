@@ -18,7 +18,7 @@ const Line = dynamic(
   { ssr: false }
 )
 
-// Helper to create an “empty” tile entry
+// Helper to produce an empty tile
 const makeEmptyEntry = (tankName, lastUpdate = new Date()) => ({
   tank: tankName,
   batch: '',
@@ -90,7 +90,7 @@ export default function Home() {
       const res  = await fetch(url)
       const json = await res.json()
       const rows = json.values
-      if (!rows || rows.length < 2) throw new Error('No data')
+      if (!rows || rows.length<2) throw new Error('No data')
 
       const headers = rows[0]
       const all = rows.slice(1).map(r => {
@@ -155,7 +155,7 @@ export default function Home() {
         const sheetUrl = rec.EY || ''
         const lastUpdate = rec.d
 
-        // build history & baseAvgOE
+        // build gravity history & baseAvgOE
         const history = all
           .filter(e=>e.EX===batch && e['Daily_Tank_Data.GravityFerm'])
           .map(e=>({
@@ -171,6 +171,19 @@ export default function Home() {
           .filter(v=>!isNaN(v))
         const baseAvgOE = OEs.length
           ? OEs.reduce((a,b)=>a+b,0)/OEs.length
+          : null
+
+        // build pH history for crashed/D.H etc
+        const pHHistory = all
+          .filter(e=>e.EX===batch && e['Daily_Tank_Data.pHFerm'])
+          .map(e=>({
+            date: parseDate(e['DateFerm']),
+            p: parseFloat(e['Daily_Tank_Data.pHFerm'])
+          }))
+          .filter(h=>!isNaN(h.p))
+          .sort((a,b)=>a.date-b.date)
+        const lastPH = pHHistory.length
+          ? pHHistory[pHHistory.length-1].p
           : null
 
         // defaults
@@ -198,8 +211,8 @@ export default function Home() {
         else {
           const raw = rec['Daily_Tank_Data.What_Stage_in_the_Product_in_']||''
           stage = raw
-          const ferPH = parseFloat(rec['Daily_Tank_Data.pHFerm'])
-          pHValue = !isNaN(ferPH) ? ferPH : brewFallbackPH
+          // always use last known pH
+          pHValue = lastPH !== null ? lastPH : brewFallbackPH
 
           if (raw.toLowerCase().includes('brite')) {
             carb = rec['Daily_Tank_Data.Bright_Tank_CarbonationFerm']||''
@@ -284,6 +297,7 @@ export default function Home() {
   // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleAddDex      = tank => setDexCounts(d=>({...d,[tank]:d[tank]+1}))
   const handleClear       = tank => {
+    // clear dex, fruit & set tile empty
     setDexCounts(d=>({...d,[tank]:0}))
     setFruitVolumes(fv=>({...fv,[tank]:0}))
     setFruitInputs(fi=>({...fi,[tank]:''}))
@@ -303,13 +317,13 @@ export default function Home() {
     return <p style={{padding:20,fontFamily:'Calibri'}}>Loading…</p>
 
   // ─── Summary ───────────────────────────────────────────────────────────────
-  const totalTanks = tankData.length
-  const emptyCount = tankData.filter(e=>e.isEmpty).length
+  const totalTanks    = tankData.length
+  const emptyCount    = tankData.filter(e=>e.isEmpty).length
   const occupiedCount = totalTanks - emptyCount
-  const totalVol = tankData
+  const totalVol      = tankData
     .filter(e=>!e.isEmpty)
     .reduce((sum,e)=> sum + (e.totalVolume||0), 0)
-  const totalVolStr = totalVol.toLocaleString('en-AU')
+  const totalVolStr   = totalVol.toLocaleString('en-AU')
 
   const baseTile = {
     position: 'relative',
@@ -415,14 +429,14 @@ export default function Home() {
           // styling
           const style = {...baseTile}
           const s = stage.toLowerCase()
-          if (isEmpty)                         { style.background='#fff'; style.border='1px solid #e0e0e0' }
-          else if (s.includes('crashed'))      { style.background='rgba(30,144,255,0.1)'; style.border='1px solid darkblue' }
-          else if (/d\.h|clean fusion/.test(s)){ style.background='rgba(34,139,34,0.1)'; style.border='1px solid darkgreen' }
-          else if (s.includes('fermentation')) { style.background='rgba(210,105,30,0.1)'; style.border='1px solid maroon' }
-          else if (s.includes('brite'))        { style.background='rgba(211,211,211,0.3)'; style.border='1px solid darkgrey' }
-          else                                  { style.border='1px solid #ccc' }
+          if (isEmpty)                            { style.background='#fff'; style.border='1px solid #e0e0e0' }
+          else if (s.includes('crashed'))         { style.background='rgba(30,144,255,0.1)'; style.border='1px solid darkblue' }
+          else if (/d\.h|clean fusion/.test(s))   { style.background='rgba(34,139,34,0.1)'; style.border='1px solid darkgreen' }
+          else if (s.includes('fermentation'))    { style.background='rgba(210,105,30,0.1)'; style.border='1px solid maroon' }
+          else if (s.includes('brite'))           { style.background='rgba(211,211,211,0.3)'; style.border='1px solid darkgrey' }
+          else                                     { style.border='1px solid #ccc' }
 
-          const volLabel = s.includes('brite')? 'BBT Vol:' : 'Tank Vol:'
+          const volLabel = s.includes('brite') ? 'BBT Vol:' : 'Tank Vol:'
 
           return (
             <div key={tank}
@@ -430,19 +444,18 @@ export default function Home() {
                  onMouseEnter={e=>e.currentTarget.style.transform='translateY(-4px)'}
                  onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}
             >
-              {/* small clear button */}
+              {/* small clear‐tile button (half size) */}
               <button onClick={()=>handleClear(tank)}
                       style={{
                         position:'absolute',
-                        top:'4px',
-                        right:'4px',
+                        top:'4px', right:'4px',
                         background:'transparent',
                         border:'none',
-                        fontSize:'12px',
+                        fontSize:'8px', /* half of 16px */
                         cursor:'pointer'
                       }}>❌</button>
 
-              <h3 style={{marginTop:'0'}}>
+              <h3 style={{marginTop:0}}>
                 {tank}
                 {batch && <>
                   {' – '}
@@ -455,83 +468,108 @@ export default function Home() {
                 </>}
               </h3>
 
-              {isEmpty ? (
-                <p><strong>Empty</strong></p>
-              ) : (
-                <>
-                  <p><strong>Stage:</strong> {stage||'N/A'}</p>
+              {isEmpty
+                ? <p><strong>Empty</strong></p>
+                : (
+                  <>
+                    <p><strong>Stage:</strong> {stage||'N/A'}</p>
 
-                  {s.includes('brite') ? (
-                    <>
-                      <p><strong>Carb:</strong> {carb ? `${parseFloat(carb).toFixed(2)} vols` : ''}</p>
-                      <p><strong>D.O.:</strong> {dox ? `${parseFloat(dox).toFixed(1)} ppb` : ''}</p>
-                    </>
-                  ) : s === 'brewing day data' ? (
-                    <>
-                      <p><strong>Gravity:</strong> {baseAvgOE!=null?`${baseAvgOE.toFixed(1)} °P`:''}</p>
-                      {brewFallbackPH!=null && <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>}
-                    </>
-                  ) : (
-                    <>
-                      <p><strong>Gravity:</strong> {displayAE!=null?`${displayAE.toFixed(1)} °P`:''}</p>
-                      {pHValue!=null
-                        ? <p><strong>pH:</strong> {pHValue.toFixed(1)} pH</p>
-                        : brewFallbackPH!=null
-                          ? <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>
-                          : null
-                      }
-                    </>
-                  )}
+                    {s.includes('brite') ? (
+                      <>
+                        <p><strong>Carb:</strong> {carb ? `${parseFloat(carb).toFixed(2)} vols` : ''}</p>
+                        <p><strong>D.O.:</strong> {dox ? `${parseFloat(dox).toFixed(1)} ppb` : ''}</p>
+                      </>
+                    ) : s === 'brewing day data' ? (
+                      <>
+                        <p><strong>Gravity:</strong> {baseAvgOE!=null?`${baseAvgOE.toFixed(1)} °P`:''}</p>
+                        {brewFallbackPH!=null && <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>}
+                      </>
+                    ) : (
+                      <>
+                        <p><strong>Gravity:</strong> {displayAE!=null?`${displayAE.toFixed(1)} °P`:''}</p>
+                        {pHValue!=null && <p><strong>pH:</strong> {pHValue.toFixed(1)} pH</p>}
+                      </>
+                    )}
 
-                  <p><strong>{volLabel}</strong> {dispV.toFixed(1)} L</p>
-                  {finalABV && <p><strong>ABV:</strong> {finalABV}%</p>}
+                    <p><strong>{volLabel}</strong> {dispV.toFixed(1)} L</p>
+                    {finalABV && <p><strong>ABV:</strong> {finalABV}%</p>}
 
-                  {/* Controls */}
-                  <div style={{
-                    display:'flex',alignItems:'center',gap:'4px',marginTop:'8px'
-                  }}>
-                    <button onClick={()=>handleAddDex(tank)}
-                            style={{height:'28px',minWidth:'60px',fontSize:'12px',padding:'0 4px'}}>Add Dex</button>
-                    <span style={{
-                      display:'inline-block',height:'28px',minWidth:'24px',
-                      lineHeight:'28px',textAlign:'center',fontSize:'12px'
-                    }}>{dexCounts[tank]||0}</span>
-                    <input type="text"
-                           placeholder="fruit"
-                           value={fruitInputs[tank]||''}
-                           onChange={e=>handleFruitChange(tank,e.target.value)}
-                           style={{
-                             height:'28px',width:'50px',
-                             fontSize:'12px',padding:'0 4px'
-                           }}/>
-                    <button onClick={()=>handleAddFruit(tank)}
-                            style={{height:'28px',width:'28px',fontSize:'12px',padding:'0'}}>+</button>
-                  </div>
+                    {/* Controls: Add Dex, count, trash, fruit, + */}
+                    <div style={{
+                      display:'flex',
+                      alignItems:'center',
+                      gap:'4px',
+                      marginTop:'8px'
+                    }}>
+                      <button onClick={()=>handleAddDex(tank)}
+                              style={{
+                                height:'28px', minWidth:'60px',
+                                fontSize:'12px', padding:'0 4px'
+                              }}>
+                        Add Dex
+                      </button>
+                      <span style={{
+                        display:'inline-block',
+                        height:'28px', minWidth:'24px',
+                        lineHeight:'28px',
+                        textAlign:'center',
+                        fontSize:'12px'
+                      }}>
+                        {dexCounts[tank]||0}
+                      </span>
+                      <button onClick={()=>{ setDexCounts(dc=>({...dc,[tank]:0})); setFruitVolumes(fv=>({...fv,[tank]:0})); }}
+                              style={{
+                                height:'28px', width:'28px',
+                                background:'transparent',
+                                border:'none',
+                                fontSize:'14px',
+                                cursor:'pointer'
+                              }}>
+                        🗑️
+                      </button>
+                      <input type="text"
+                             placeholder="fruit"
+                             value={fruitInputs[tank]||''}
+                             onChange={e=>handleFruitChange(tank,e.target.value)}
+                             style={{
+                               height:'28px', width:'50px',
+                               fontSize:'12px', padding:'0 4px'
+                             }}
+                      />
+                      <button onClick={()=>handleAddFruit(tank)}
+                              style={{
+                                height:'28px', width:'28px',
+                                fontSize:'12px', padding:'0'
+                              }}>
+                        +
+                      </button>
+                    </div>
 
-                  {/* Mini chart */}
-                  {pts.length>1 && (
-                    <Line
-                      data={{
-                        labels,
-                        datasets:[{ label:'Gravity (°P)', data:pts, tension:0.4, fill:false }]
-                      }}
-                      options={{
-                        aspectRatio:2,
-                        plugins:{
-                          legend:{display:false},
-                          tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} °P`}}
-                        },
-                        scales:{
-                          x:{ticks:{display:false},grid:{display:true}},
-                          y:{beginAtZero:true,min:0,max:pts[0],ticks:{callback:v=>v.toFixed(1)}}
-                        }
-                      }}
-                      height={150}
-                      onClick={()=>setModalChart({labels,data:pts})}
-                    />
-                  )}
-                </>
-              )}
+                    {/* Mini chart */}
+                    {pts.length>1 && (
+                      <Line
+                        data={{
+                          labels,
+                          datasets:[{ label:'Gravity (°P)', data: pts, tension:0.4, fill:false }]
+                        }}
+                        options={{
+                          aspectRatio:2,
+                          plugins:{
+                            legend:{display:false},
+                            tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} °P`}}
+                          },
+                          scales:{
+                            x:{ticks:{display:false},grid:{display:true}},
+                            y:{beginAtZero:true,min:0,max:pts[0],ticks:{callback:v=>v.toFixed(1)}}
+                          }
+                        }}
+                        height={150}
+                        onClick={()=>setModalChart({labels,data:pts})}
+                      />
+                    )}
+                  </>
+                )
+              }
             </div>
           )
         })}
