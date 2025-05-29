@@ -18,6 +18,24 @@ const Line = dynamic(
   { ssr: false }
 )
 
+// Helper to create an “empty” tile entry
+const makeEmptyEntry = (tankName, lastUpdate = new Date()) => ({
+  tank: tankName,
+  batch: '',
+  sheetUrl: '',
+  stage: '',
+  isEmpty: true,
+  baseAvgOE: null,
+  history: [],
+  brewFallbackPH: null,
+  pHValue: null,
+  bbtVol: null,
+  carb: null,
+  dox: null,
+  totalVolume: 0,
+  lastUpdate
+})
+
 export default function Home() {
   const [tankData, setTankData] = useState([])
   const [error, setError] = useState(false)
@@ -42,7 +60,7 @@ export default function Home() {
   // ─── Helpers ───────────────────────────────────────────────────────────────
   const parseDate = ds => {
     if (!ds) return new Date(0)
-    const [d, m, y] = ds.split(/[/\s:]+/).map((v,i)=> i<3? +v : null)
+    const [d,m,y] = ds.split(/[/\s:]+/).map((v,i)=> i<3? +v : null)
     return new Date(y, m-1, d)
   }
   const platoToSG = p =>
@@ -64,7 +82,6 @@ export default function Home() {
   // ─── Fetch & assemble dashboard data ────────────────────────────────────────
   const fetchData = useCallback(async () => {
     try {
-      // 1) load sheet
       const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnjm0'
       const range   = 'A1:ZZ1000'
       const apiKey  = 'AIzaSyDIcqb7GydD5J5H9O_psCdL1vmH5Lka4l8'
@@ -73,7 +90,7 @@ export default function Home() {
       const res  = await fetch(url)
       const json = await res.json()
       const rows = json.values
-      if (!rows || rows.length<2) throw new Error('No data')
+      if (!rows || rows.length < 2) throw new Error('No data')
 
       const headers = rows[0]
       const all = rows.slice(1).map(r => {
@@ -89,7 +106,7 @@ export default function Home() {
       const map = {}
 
       tanks.forEach(name => {
-        // a) find any packaging entry → ignore everything
+        // 1) packaging → empty
         const ferRows = all.filter(e=> e['Daily_Tank_Data.FVFerm']===name)
         const packaging = ferRows.find(e=>
           e['What_are_you_filling_out_today_']
@@ -97,19 +114,11 @@ export default function Home() {
             .includes('packaging data')
         )
         if (packaging) {
-          map[name] = {
-            tank: name, batch:'', sheetUrl:'',
-            stage:'', isEmpty:true,
-            baseAvgOE:null, history:[],
-            brewFallbackPH:null,
-            pHValue:null, bbtVol:null,
-            carb:null, dox:null, totalVolume:0,
-            lastUpdate: parseDate(packaging.DateFerm)
-          }
+          map[name] = makeEmptyEntry(name, parseDate(packaging.DateFerm))
           return
         }
 
-        // b) brewing‐day entries
+        // 2) brewing‐day entries
         const brewRows = all.filter(e=>
           e['What_are_you_filling_out_today_']
             .toLowerCase()
@@ -122,7 +131,7 @@ export default function Home() {
           brewFallbackPH = parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // c) transfer‐data entries
+        // 3) transfer‐data entries
         const xferRows = all.filter(e=>
           e['What_are_you_filling_out_today_']
             .toLowerCase()
@@ -130,22 +139,14 @@ export default function Home() {
           && e['Transfer_Data.BTTrans'] === name
         ).map(e=>({...e, d: parseDate(e.DateFerm)}))
 
-        // d) now choose the most recent overall
+        // 4) pick newest overall
         const candidates = [
           ...ferRows.map(e=>({...e, _type:'fer', d: parseDate(e.DateFerm)})),
           ...brewRows.map(e=>({...e, _type:'brew'})),
           ...xferRows.map(e=>({...e, _type:'xfer'}))
         ]
         if (!candidates.length) {
-          map[name] = {
-            tank: name, batch:'', sheetUrl:'',
-            stage:'', isEmpty:true,
-            baseAvgOE:null, history:[],
-            brewFallbackPH:null,
-            pHValue:null, bbtVol:null,
-            carb:null, dox:null, totalVolume:0,
-            lastUpdate: new Date(0)
-          }
+          map[name] = makeEmptyEntry(name)
           return
         }
         candidates.sort((a,b)=>b.d - a.d)
@@ -154,11 +155,13 @@ export default function Home() {
         const sheetUrl = rec.EY || ''
         const lastUpdate = rec.d
 
-        // e) common: build fermentation history & baseAvgOE
+        // build history & baseAvgOE
         const history = all
           .filter(e=>e.EX===batch && e['Daily_Tank_Data.GravityFerm'])
-          .map(e=>({ date: parseDate(e.DateFerm),
-                     g: parseFloat(e['Daily_Tank_Data.GravityFerm']) }))
+          .map(e=>({
+            date: parseDate(e['DateFerm']),
+            g: parseFloat(e['Daily_Tank_Data.GravityFerm'])
+          }))
           .filter(h=>!isNaN(h.g))
           .sort((a,b)=>a.date-b.date)
 
@@ -177,7 +180,7 @@ export default function Home() {
         let bbtVol = null
         let totalVolume = 0
 
-        // f) per‐type logic
+        // a) transfer data → "Brite"
         if (rec._type==='xfer') {
           stage = 'Brite'
           carb = rec['Transfer_Data.Final_Tank_CO2_Carbonation'] || ''
@@ -185,32 +188,29 @@ export default function Home() {
           bbtVol = rec['Transfer_Data.Final_Tank_Volume'] || ''
           totalVolume = parseFloat(bbtVol)||0
         }
+        // b) brewing day
         else if (rec._type==='brew') {
           stage = 'Brewing Day Data'
           totalVolume = parseFloat(rec['Brewing_Day_Data.Volume_into_FV'])||0
-          // OG display uses baseAvgOE
           pHValue = brewFallbackPH
         }
+        // c) fermentation / daily
         else {
-          // fermentation
           const raw = rec['Daily_Tank_Data.What_Stage_in_the_Product_in_']||''
           stage = raw
           const ferPH = parseFloat(rec['Daily_Tank_Data.pHFerm'])
-          // fallback: if no pHFerm then brewing‐day pH
           pHValue = !isNaN(ferPH) ? ferPH : brewFallbackPH
 
           if (raw.toLowerCase().includes('brite')) {
             carb = rec['Daily_Tank_Data.Bright_Tank_CarbonationFerm']||''
             dox = rec['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm']||''
-            // volume from last transfer if any
             const t = all.find(e=>e.EX===batch && e['Transfer_Data.Final_Tank_Volume'])
             bbtVol = t? t['Transfer_Data.Final_Tank_Volume'] : ''
             totalVolume = parseFloat(bbtVol)||0
           } else {
-            // fermenting
             totalVolume = all
               .filter(e=>e.EX===batch)
-              .reduce((s,e)=> s+(parseFloat(e['Brewing_Day_Data.Volume_into_FV'])||0), 0)
+              .reduce((s,e)=>s + (parseFloat(e['Brewing_Day_Data.Volume_into_FV'])||0), 0)
           }
         }
 
@@ -232,7 +232,7 @@ export default function Home() {
         }
       })
 
-      // ─── Remove duplicates: keep only newest batch instance ─────────────────
+      // ─── Remove duplicate batches ─────────────────────────────────────────────
       const byBatch = {}
       Object.values(map).forEach(e=>{
         if (e.batch) {
@@ -244,20 +244,11 @@ export default function Home() {
         if (group.length>1) {
           group.sort((a,b)=>b.lastUpdate - a.lastUpdate)
           group.slice(1).forEach(e=>{
-            map[e.tank] = {
-              tank: e.tank, batch:'', sheetUrl:'',
-              stage:'', isEmpty:true,
-              baseAvgOE:null, history:[],
-              brewFallbackPH:null,
-              pHValue:null, bbtVol:null,
-              carb:null, dox:null, totalVolume:0,
-              lastUpdate: e.lastUpdate
-            }
+            map[e.tank] = makeEmptyEntry(e.tank, e.lastUpdate)
           })
         }
       })
 
-      // done
       setTankData(Object.values(map))
       setError(false)
 
@@ -292,10 +283,11 @@ export default function Home() {
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleAddDex      = tank => setDexCounts(d=>({...d,[tank]:d[tank]+1}))
-  const handleClear      = tank => {
+  const handleClear       = tank => {
     setDexCounts(d=>({...d,[tank]:0}))
     setFruitVolumes(fv=>({...fv,[tank]:0}))
     setFruitInputs(fi=>({...fi,[tank]:''}))
+    setTankData(td=> td.map(e=> e.tank===tank ? makeEmptyEntry(tank) : e))
   }
   const handleFruitChange = (t,v) => setFruitInputs(fi=>({...fi,[t]:v}))
   const handleAddFruit    = tank => {
@@ -310,7 +302,17 @@ export default function Home() {
   if (!tankData.length)
     return <p style={{padding:20,fontFamily:'Calibri'}}>Loading…</p>
 
+  // ─── Summary ───────────────────────────────────────────────────────────────
+  const totalTanks = tankData.length
+  const emptyCount = tankData.filter(e=>e.isEmpty).length
+  const occupiedCount = totalTanks - emptyCount
+  const totalVol = tankData
+    .filter(e=>!e.isEmpty)
+    .reduce((sum,e)=> sum + (e.totalVolume||0), 0)
+  const totalVolStr = totalVol.toLocaleString('en-AU')
+
   const baseTile = {
+    position: 'relative',
     borderRadius:'8px',
     padding:'10px',
     background:'#fff',
@@ -343,7 +345,7 @@ export default function Home() {
                 labels: modalChart.labels,
                 datasets:[{
                   label:'Gravity (°P)',
-                  data:modalChart.data,
+                  data: modalChart.data,
                   tension:0.4, fill:false
                 }]
               }}
@@ -370,67 +372,48 @@ export default function Home() {
         gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',
         gap:'20px', padding:'20px'
       }}>
-        {tankData.map(t=>{
+        {tankData.map(e=>{
           const {
-            tank: name,
-            batch,
-            sheetUrl,
-            stage,
-            isEmpty,
-            baseAvgOE,
-            history,
-            brewFallbackPH,
-            pHValue,
-            bbtVol,
-            carb,
-            dox,
-            totalVolume
-          } = t
+            tank, batch, sheetUrl, stage, isEmpty,
+            baseAvgOE, history, brewFallbackPH,
+            pHValue, bbtVol, carb, dox, totalVolume
+          } = e
 
-          // ABV calculations
-          const dex = dexCounts[name]||0
-          const HL  = totalVolume/1000
+          // ABV
+          const dex = dexCounts[tank]||0
+          const HL  = (totalVolume||0)/1000
           const incOE = baseAvgOE!==null
             ? baseAvgOE + (HL>0?1.3/HL*dex:0)
             : null
           const curAE = history.length
             ? history[history.length-1].g
             : null
-          // fallback gravity = if no curAE, use baseAvgOE
-          const displayAE = curAE!==null
-            ? curAE
-            : baseAvgOE
-          const leg = incOE!==null&&displayAE!==null
-            ? calcLegacy(incOE,displayAE)
-            : null
-          const neu = incOE!==null&&displayAE!==null
-            ? calcNew(incOE,displayAE)
-            : null
-          const dexABV = leg!==null&&neu!==null
-            ? ((leg+neu)/2).toFixed(1)
-            : null
+          const displayAE = curAE!==null? curAE : baseAvgOE
+          const leg = incOE!==null&&displayAE!==null? calcLegacy(incOE,displayAE):null
+          const neu = incOE!==null&&displayAE!==null? calcNew(incOE,displayAE):null
+          const dexABV = leg!==null&&neu!==null? ((leg+neu)/2).toFixed(1):null
 
-          // fruit adjustments
-          const fv     = fruitVolumes[name]||0
-          const eff    = fv*0.9
-          const baseV  = stage.toLowerCase().includes('brite')
+          // fruit & volume
+          const fv   = fruitVolumes[tank]||0
+          const eff  = fv*0.9
+          const baseV= stage.toLowerCase().includes('brite')
             ? (parseFloat(bbtVol)||0)
-            : totalVolume
-          const dispV  = baseV + eff
+            : (totalVolume||0)
+          const dispV= baseV + eff
           const finalABV = dexABV!==null
             ? ((dexABV/100*baseV)/dispV*100).toFixed(1)
             : null
 
-          // chart data
+          // mini‐chart
           const labels = incOE!==null
             ? ['OG',...history.map(h=>h.date.toLocaleDateString('en-AU'))]
             : history.map(h=>h.date.toLocaleDateString('en-AU'))
-          const pts    = incOE!==null
+          const pts = incOE!==null
             ? [incOE,...history.map(h=>h.g)]
             : history.map(h=>h.g)
 
-          // tile style
-          const style={...baseTile}
+          // styling
+          const style = {...baseTile}
           const s = stage.toLowerCase()
           if (isEmpty)                         { style.background='#fff'; style.border='1px solid #e0e0e0' }
           else if (s.includes('crashed'))      { style.background='rgba(30,144,255,0.1)'; style.border='1px solid darkblue' }
@@ -442,13 +425,25 @@ export default function Home() {
           const volLabel = s.includes('brite')? 'BBT Vol:' : 'Tank Vol:'
 
           return (
-            <div key={name}
+            <div key={tank}
                  style={style}
                  onMouseEnter={e=>e.currentTarget.style.transform='translateY(-4px)'}
                  onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}
             >
-              <h3>
-                {name}
+              {/* small clear button */}
+              <button onClick={()=>handleClear(tank)}
+                      style={{
+                        position:'absolute',
+                        top:'4px',
+                        right:'4px',
+                        background:'transparent',
+                        border:'none',
+                        fontSize:'12px',
+                        cursor:'pointer'
+                      }}>❌</button>
+
+              <h3 style={{marginTop:'0'}}>
+                {tank}
                 {batch && <>
                   {' – '}
                   <a href={sheetUrl}
@@ -460,111 +455,100 @@ export default function Home() {
                 </>}
               </h3>
 
-              {isEmpty
-                ? <p><strong>Empty</strong></p>
-                : (
-                  <>
-                    <p><strong>Stage:</strong> {stage||'N/A'}</p>
-                    {/* Brite or Transfer */}
-                    {s.includes('brite') ? (
-                      <>
-                        <p><strong>Carb:</strong> {carb}</p>
-                        <p><strong>D.O.:</strong> {dox}</p>
-                      </>
-                    ) : s === 'brewing day data' ? (
-                      <>
-                        <p><strong>Gravity:</strong> {baseAvgOE!=null?baseAvgOE.toFixed(1):''} °P</p>
-                        {brewFallbackPH!=null && <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>}
-                      </>
-                    ) : (
-                      // Fermentation
-                      <>
-                        <p><strong>Gravity:</strong> {displayAE!=null?displayAE.toFixed(1):''} °P</p>
-                        {pHValue!=null
-                          ? <p><strong>pH:</strong> {pHValue.toFixed(1)} pH</p>
-                          : brewFallbackPH!=null
-                            ? <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>
-                            : null
+              {isEmpty ? (
+                <p><strong>Empty</strong></p>
+              ) : (
+                <>
+                  <p><strong>Stage:</strong> {stage||'N/A'}</p>
+
+                  {s.includes('brite') ? (
+                    <>
+                      <p><strong>Carb:</strong> {carb ? `${parseFloat(carb).toFixed(2)} vols` : ''}</p>
+                      <p><strong>D.O.:</strong> {dox ? `${parseFloat(dox).toFixed(1)} ppb` : ''}</p>
+                    </>
+                  ) : s === 'brewing day data' ? (
+                    <>
+                      <p><strong>Gravity:</strong> {baseAvgOE!=null?`${baseAvgOE.toFixed(1)} °P`:''}</p>
+                      {brewFallbackPH!=null && <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>}
+                    </>
+                  ) : (
+                    <>
+                      <p><strong>Gravity:</strong> {displayAE!=null?`${displayAE.toFixed(1)} °P`:''}</p>
+                      {pHValue!=null
+                        ? <p><strong>pH:</strong> {pHValue.toFixed(1)} pH</p>
+                        : brewFallbackPH!=null
+                          ? <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>
+                          : null
+                      }
+                    </>
+                  )}
+
+                  <p><strong>{volLabel}</strong> {dispV.toFixed(1)} L</p>
+                  {finalABV && <p><strong>ABV:</strong> {finalABV}%</p>}
+
+                  {/* Controls */}
+                  <div style={{
+                    display:'flex',alignItems:'center',gap:'4px',marginTop:'8px'
+                  }}>
+                    <button onClick={()=>handleAddDex(tank)}
+                            style={{height:'28px',minWidth:'60px',fontSize:'12px',padding:'0 4px'}}>Add Dex</button>
+                    <span style={{
+                      display:'inline-block',height:'28px',minWidth:'24px',
+                      lineHeight:'28px',textAlign:'center',fontSize:'12px'
+                    }}>{dexCounts[tank]||0}</span>
+                    <input type="text"
+                           placeholder="fruit"
+                           value={fruitInputs[tank]||''}
+                           onChange={e=>handleFruitChange(tank,e.target.value)}
+                           style={{
+                             height:'28px',width:'50px',
+                             fontSize:'12px',padding:'0 4px'
+                           }}/>
+                    <button onClick={()=>handleAddFruit(tank)}
+                            style={{height:'28px',width:'28px',fontSize:'12px',padding:'0'}}>+</button>
+                  </div>
+
+                  {/* Mini chart */}
+                  {pts.length>1 && (
+                    <Line
+                      data={{
+                        labels,
+                        datasets:[{ label:'Gravity (°P)', data:pts, tension:0.4, fill:false }]
+                      }}
+                      options={{
+                        aspectRatio:2,
+                        plugins:{
+                          legend:{display:false},
+                          tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} °P`}}
+                        },
+                        scales:{
+                          x:{ticks:{display:false},grid:{display:true}},
+                          y:{beginAtZero:true,min:0,max:pts[0],ticks:{callback:v=>v.toFixed(1)}}
                         }
-                      </>
-                    )}
-
-                    <p><strong>{volLabel}</strong> {dispV.toFixed(1)} L</p>
-                    {finalABV && <p><strong>ABV:</strong> {finalABV}%</p>}
-
-                    {/* Controls in one line */}
-                    <div style={{
-                      display:'flex',
-                      alignItems:'center',
-                      gap:'4px',
-                      marginTop:'8px'
-                    }}>
-                      <button onClick={()=>handleAddDex(name)}
-                              style={{
-                                height:'28px',minWidth:'60px',
-                                fontSize:'12px',padding:'0 4px'
-                              }}>Add Dex</button>
-                      <span style={{
-                        display:'inline-block',
-                        height:'28px',minWidth:'24px',
-                        lineHeight:'28px',textAlign:'center',
-                        fontSize:'12px'
-                      }}>{dex}</span>
-                      <button onClick={()=>handleClear(name)}
-                              style={{
-                                height:'28px',width:'28px',
-                                fontSize:'14px',
-                                background:'transparent',
-                                border:'none',
-                                cursor:'pointer'
-                              }}>🗑️</button>
-                      <input type="text"
-                             placeholder="fruit"
-                             value={fruitInputs[name]||''}
-                             onChange={e=>handleFruitChange(name,e.target.value)}
-                             style={{
-                               height:'28px',width:'50px',
-                               fontSize:'12px',padding:'0 4px'
-                             }}/>
-                      <button onClick={()=>handleAddFruit(name)}
-                              style={{
-                                height:'28px',width:'28px',
-                                fontSize:'12px',padding:'0'
-                              }}>+</button>
-                    </div>
-
-                    {/* Mini chart */}
-                    {pts.length>1 && (
-                      <Line
-                        data={{
-                          labels,
-                          datasets:[{ label:'Gravity (°P)', data: pts, tension:0.4, fill:false }]
-                        }}
-                        options={{
-                          aspectRatio:2,
-                          plugins:{
-                            legend:{display:false},
-                            tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} °P`}}
-                          },
-                          scales:{
-                            x:{ticks:{display:false},grid:{display:true}},
-                            y:{beginAtZero:true,min:0,max:pts[0],ticks:{callback:v=>v.toFixed(1)}}
-                          }
-                        }}
-                        height={150}
-                        onClick={()=>setModalChart({ labels, data: pts })}
-                      />
-                    )}
-                  </>
-                )
-              }
+                      }}
+                      height={150}
+                      onClick={()=>setModalChart({labels,data:pts})}
+                    />
+                  )}
+                </>
+              )}
             </div>
           )
         })}
       </div>
 
-      {/* Manual Refresh */}
-      <div style={{ textAlign:'center', padding:'20px' }}>
+      {/* Summary */}
+      <div style={{
+        fontFamily:'Calibri, sans-serif',
+        padding:'0 20px 10px'
+      }}>
+        <p>Empty tanks: {emptyCount}/{totalTanks}</p>
+        <p>Occupied tanks: {occupiedCount}/{totalTanks}</p>
+        <p>Total volume on site: {totalVolStr} L</p>
+      </div>
+
+      {/* Refresh Button */}
+      <div style={{ textAlign:'center', padding:'10px 0 20px' }}>
         <button onClick={fetchData}
                 style={{
                   fontSize:'16px',
