@@ -18,7 +18,7 @@ const Line = dynamic(
   { ssr: false }
 )
 
-// Helper to produce an empty tile
+// Helper to produce an “empty” tile entry
 const makeEmptyEntry = (tankName, lastUpdate = new Date()) => ({
   tank: tankName,
   batch: '',
@@ -60,7 +60,7 @@ export default function Home() {
   // ─── Helpers ───────────────────────────────────────────────────────────────
   const parseDate = ds => {
     if (!ds) return new Date(0)
-    const [d,m,y] = ds.split(/[/\s:]+/).map((v,i)=> i<3? +v : null)
+    const [d, m, y] = ds.split(/[/\s:]+/).map((v,i)=> i<3 ? +v : null)
     return new Date(y, m-1, d)
   }
   const platoToSG = p =>
@@ -76,7 +76,7 @@ export default function Home() {
     const num = 76.08*(OG-FG), den = 1.775-OG
     if (!den) return null
     const abv = (num/den)*(FG/0.794)
-    return isFinite(abv)? abv : null
+    return isFinite(abv) ? abv : null
   }
 
   // ─── Fetch & assemble dashboard data ────────────────────────────────────────
@@ -90,7 +90,7 @@ export default function Home() {
       const res  = await fetch(url)
       const json = await res.json()
       const rows = json.values
-      if (!rows || rows.length<2) throw new Error('No data')
+      if (!rows || rows.length < 2) throw new Error('No data')
 
       const headers = rows[0]
       const all = rows.slice(1).map(r => {
@@ -155,6 +155,19 @@ export default function Home() {
         const sheetUrl = rec.EY || ''
         const lastUpdate = rec.d
 
+        // ─── SECONDARY PACKAGING CHECK ─────────────────────────────────
+        const packagingForBatch = all.find(e =>
+          e.EX === batch &&
+          e['What_are_you_filling_out_today_']
+            .toLowerCase()
+            .includes('packaging data')
+        )
+        if (packagingForBatch) {
+          map[name] = makeEmptyEntry(name, parseDate(packagingForBatch.DateFerm))
+          return
+        }
+        // ───────────────────────────────────────────────────────────────
+
         // build gravity history & baseAvgOE
         const history = all
           .filter(e=>e.EX===batch && e['Daily_Tank_Data.GravityFerm'])
@@ -173,7 +186,7 @@ export default function Home() {
           ? OEs.reduce((a,b)=>a+b,0)/OEs.length
           : null
 
-        // build pH history for crashed/D.H etc
+        // build pH history
         const pHHistory = all
           .filter(e=>e.EX===batch && e['Daily_Tank_Data.pHFerm'])
           .map(e=>({
@@ -207,11 +220,10 @@ export default function Home() {
           totalVolume = parseFloat(rec['Brewing_Day_Data.Volume_into_FV'])||0
           pHValue = brewFallbackPH
         }
-        // c) fermentation / daily
+        // c) fermentation / daily / crashed / D.H.
         else {
           const raw = rec['Daily_Tank_Data.What_Stage_in_the_Product_in_']||''
           stage = raw
-          // always use last known pH
           pHValue = lastPH !== null ? lastPH : brewFallbackPH
 
           if (raw.toLowerCase().includes('brite')) {
@@ -433,7 +445,7 @@ export default function Home() {
           else if (s.includes('crashed'))         { style.background='rgba(30,144,255,0.1)'; style.border='1px solid darkblue' }
           else if (/d\.h|clean fusion/.test(s))   { style.background='rgba(34,139,34,0.1)'; style.border='1px solid darkgreen' }
           else if (s.includes('fermentation'))    { style.background='rgba(210,105,30,0.1)'; style.border='1px solid maroon' }
-          else if (s.includes('brite'))           { style.background='rgba(211,211,211,0.3)'; style.border='1px solid darkgrey' }
+          else if (s.includes('brite'))           { style.background='#f0f0f0'; style.border='1px solid darkgrey' }
           else                                     { style.border='1px solid #ccc' }
 
           const volLabel = s.includes('brite') ? 'BBT Vol:' : 'Tank Vol:'
@@ -517,14 +529,17 @@ export default function Home() {
                       }}>
                         {dexCounts[tank]||0}
                       </span>
-                      <button onClick={()=>{ setDexCounts(dc=>({...dc,[tank]:0})); setFruitVolumes(fv=>({...fv,[tank]:0})); }}
-                              style={{
-                                height:'28px', width:'28px',
-                                background:'transparent',
-                                border:'none',
-                                fontSize:'14px',
-                                cursor:'pointer'
-                              }}>
+                      <button onClick={()=>{
+                          setDexCounts(dc=>({...dc,[tank]:0}))
+                          setFruitVolumes(fv=>({...fv,[tank]:0}))
+                        }}
+                        style={{
+                          height:'28px', width:'28px',
+                          background:'transparent',
+                          border:'none',
+                          fontSize:'14px',
+                          cursor:'pointer'
+                        }}>
                         🗑️
                       </button>
                       <input type="text"
@@ -550,7 +565,7 @@ export default function Home() {
                       <Line
                         data={{
                           labels,
-                          datasets:[{ label:'Gravity (°P)', data: pts, tension:0.4, fill:false }]
+                          datasets:[{ label:'Gravity (°P)', data:pts, tension:0.4, fill:false }]
                         }}
                         options={{
                           aspectRatio:2,
