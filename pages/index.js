@@ -12,16 +12,28 @@ import {
   Legend
 } from 'chart.js'
 
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend
+// Only register these on the client side
+if (typeof window !== 'undefined') {
+  ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Tooltip,
+    Legend
+  )
+}
+
+// Client-only React wrapper for Chart.js
+const Line = dynamic(
+  () => import('react-chartjs-2').then(mod => mod.Line),
+  { ssr: false }
 )
+
+export default function Home() {
+  // …
+}
 
 // Client-only import of the React Chart.js wrapper
 const Line = dynamic(
