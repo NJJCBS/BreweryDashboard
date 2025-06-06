@@ -33,7 +33,7 @@ const makeEmptyEntry = (tankName, lastUpdate = new Date()) => ({
   carb: null,
   dox: null,
   totalVolume: 0,
-  temperature: null,       // <-- Add a temperature field
+  temperature: null,       // <-- temperature field
   lastUpdate
 })
 
@@ -94,7 +94,7 @@ export default function Home() {
       const res = await fetch(url)
       const json = await res.json()
       const rows = json.values
-      if (!rows || rows.length < 2) throw new Error('No data')
+      if (!rows || rows.length < 2) throw new Error('No data in Sheets')
 
       const headers = rows[0]
       const all = rows.slice(1).map(r => {
@@ -103,22 +103,26 @@ export default function Home() {
         return o
       })
 
-      // 2) Fetch Frigid API to get temperature readings
-      const frigidRes = await fetch('https://api2.frigid.cloud/batch/list', {
-        headers: {
-          'x-api-key': 'ry4b0gkex3hzv71apg84m183g0ibm0slel3hegff'
+      // 2) Fetch Frigid API via our own Next.js route
+      let tempMap = {}
+      try {
+        const frigidProxy = await fetch('/api/frigid')
+        if (frigidProxy.ok) {
+          const frigidJson = await frigidProxy.json()
+          frigidJson.forEach(item => {
+            if (item.tank) {
+              tempMap[item.tank] = parseFloat(item.temperature)
+            }
+          })
+        } else {
+          console.warn('Warning: /api/frigid returned', frigidProxy.status)
         }
-      })
-      const frigidJson = await frigidRes.json()
-      // Build a map: tankName → latest temperature (in °C)
-      const tempMap = {}
-      frigidJson.forEach(item => {
-        if (item.tank) {
-          tempMap[item.tank] = parseFloat(item.temperature)
-        }
-      })
+      } catch (e) {
+        console.error('Error fetching /api/frigid:', e)
+        // leave tempMap empty—no temperature data
+      }
 
-      // 3) Assemble per-tank data
+      // 3) Assemble per‐tank data
       const tanks = [
         'FV1',
         'FV2',
@@ -150,7 +154,7 @@ export default function Home() {
           return
         }
 
-        // 3b) brewing-day entries (grab every “Brewing Day Data” row for this FV)
+        // 3b) brewing‐day entries (grab every “Brewing Day Data” row for this FV)
         const brewRows = all
           .filter(
             e =>
@@ -161,8 +165,7 @@ export default function Home() {
           )
           .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // —────────────────────────────────────────────────────────────────
-        // TEMPORARY LOG: inspect all “Brewing Day Data” rows (old + new batches)
+        // TEMP LOG: inspect all “Brewing Day Data” rows
         console.log(
           `>>> brewRows for tank ${name}:`,
           brewRows.map(r => ({
@@ -171,7 +174,6 @@ export default function Home() {
             volume: r['Brewing_Day_Data.Volume_into_FV']
           }))
         )
-        // —────────────────────────────────────────────────────────────────
 
         let brewFallbackPH = null
         if (brewRows.length) {
@@ -180,7 +182,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3c) transfer-data entries
+        // 3c) transfer‐data entries
         const xferRows = all
           .filter(
             e =>
@@ -199,7 +201,11 @@ export default function Home() {
         const brewRowsForSort = brewRows.map(e => ({ ...e, _type: 'brew' }))
         const xferRowsForSort = xferRows.map(e => ({ ...e, _type: 'xfer' }))
 
-        const candidates = [...ferRowsForSort, ...brewRowsForSort, ...xferRowsForSort]
+        const candidates = [
+          ...ferRowsForSort,
+          ...brewRowsForSort,
+          ...xferRowsForSort
+        ]
 
         if (!candidates.length) {
           map[name] = makeEmptyEntry(name)
@@ -236,7 +242,9 @@ export default function Home() {
           .sort((a, b) => a.date - b.date)
 
         const OEs = all
-          .filter(e => e.EX === batch && e['Brewing_Day_Data.Original_Gravity'])
+          .filter(
+            e => e.EX === batch && e['Brewing_Day_Data.Original_Gravity']
+          )
           .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
           .filter(v => !isNaN(v))
         const baseAvgOE = OEs.length
@@ -252,12 +260,15 @@ export default function Home() {
           }))
           .filter(h => !isNaN(h.p))
           .sort((a, b) => a.date - b.date)
-        const lastPH = pHHistory.length ? pHHistory[pHHistory.length - 1].p : null
+        const lastPH = pHHistory.length
+          ? pHHistory[pHHistory.length - 1].p
+          : null
 
         // defaults
         let stage = ''
         let pHValue = null
-        let carb = null, dox = null
+        let carb = null,
+          dox = null
         let bbtVol = null
         let totalVolume = 0
 
@@ -276,15 +287,6 @@ export default function Home() {
           // Filter brewRows to only keep rows whose EX === current batch
           const brewRowsForBatch = brewRows.filter(e => e.EX === batch)
 
-          // (Optional) TEMP LOG to confirm correct entries:
-          // console.log(
-          //   `Summing brewRowsForBatch for tank ${name}, batch=${batch}:`,
-          //   brewRowsForBatch.map(r => ({
-          //     date: r.DateFerm,
-          //     vol: r['Brewing_Day_Data.Volume_into_FV']
-          //   }))
-          // )
-
           // Sum exactly those entries (e.g. 1490 + 1480 = 2970)
           totalVolume = brewRowsForBatch.reduce(
             (sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
@@ -302,7 +304,9 @@ export default function Home() {
           if (raw.toLowerCase().includes('brite')) {
             carb = rec['Daily_Tank_Data.Bright_Tank_CarbonationFerm'] || ''
             dox = rec['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'] || ''
-            const t = all.find(e => e.EX === batch && e['Transfer_Data.Final_Tank_Volume'])
+            const t = all.find(
+              e => e.EX === batch && e['Transfer_Data.Final_Tank_Volume']
+            )
             bbtVol = t ? t['Transfer_Data.Final_Tank_Volume'] : ''
             totalVolume = parseFloat(bbtVol) || 0
           } else {
@@ -316,7 +320,8 @@ export default function Home() {
         }
 
         // get temperature if available
-        const temperature = tempMap[name] !== undefined ? tempMap[name] : null
+        const temperature =
+          tempMap[name] !== undefined ? tempMap[name] : null
 
         map[name] = {
           tank: name,
@@ -332,7 +337,7 @@ export default function Home() {
           carb,
           dox,
           totalVolume,
-          temperature,    // <-- attach temperature here
+          temperature, // <-- attach temperature here
           lastUpdate
         }
       })
@@ -374,7 +379,7 @@ export default function Home() {
           : tanks.reduce((o, t) => ({ ...o, [t]: 0 }), {})
       )
     } catch (e) {
-      console.error(e)
+      console.error('Error in fetchData():', e)
       setError(true)
     }
   }, [])
@@ -544,7 +549,7 @@ export default function Home() {
             carb,
             dox,
             totalVolume,
-            temperature     // <-- Destructure temperature
+            temperature // <-- Destructure temperature
           } = e
 
           // ABV
