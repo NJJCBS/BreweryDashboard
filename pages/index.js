@@ -132,27 +132,29 @@ export default function Home() {
           return
         }
 
-// 2) brewing‐day entries
-const brewRows = all
-  .filter(e =>
-    e['What_are_you_filling_out_today_']
-      .toLowerCase()
-      .includes('brewing day data') &&
-    e['Brewing_Day_Data.FV_Tank'] === name
-  )
-  .map(e => ({ ...e, d: parseDate(e.DateFerm) }));
+        // 2) brewing-day entries (initial: grab every “Brewing Day Data” row for this FV)
+        const brewRows = all
+          .filter(
+            e =>
+              e['What_are_you_filling_out_today_']
+                .toLowerCase()
+                .includes('brewing day data') &&
+              e['Brewing_Day_Data.FV_Tank'] === name
+          )
+          .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
 
-// —────────────────────────────────────────────────────────────────
-// TEMPORARY LOG: print out every “Brewing Day Data” row for FV “name”
-console.log(
-  `>>> brewRows for tank ${name}:`,
-  brewRows.map(r => ({
-    batch: r.EX,
-    date: r.DateFerm,
-    volume: r['Brewing_Day_Data.Volume_into_FV']
-  }))
-);
-// —────────────────────────────────────────────────────────────────
+        // —────────────────────────────────────────────────────────────────
+        // TEMPORARY LOG: inspect all “Brewing Day Data” rows (old + new batches)
+        console.log(
+          `>>> brewRows for tank ${name}:`,
+          brewRows.map(r => ({
+            batch: r.EX,
+            date: r.DateFerm,
+            volume: r['Brewing_Day_Data.Volume_into_FV']
+          }))
+        )
+        // —────────────────────────────────────────────────────────────────
+
         let brewFallbackPH = null
         if (brewRows.length) {
           brewRows.sort((a, b) => b.d - a.d)
@@ -160,7 +162,7 @@ console.log(
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3) transfer‐data entries
+        // 3) transfer-data entries
         const xferRows = all
           .filter(
             e =>
@@ -171,12 +173,16 @@ console.log(
           )
           .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 4) pick newest overall
-        const candidates = [
-          ...ferRows.map(e => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) })),
-          ...brewRows.map(e => ({ ...e, _type: 'brew' })),
-          ...xferRows.map(e => ({ ...e, _type: 'xfer' }))
-        ]
+        // 4) pick newest overall (could be fermentation, brewing, or transfer)
+        const ferRowsForSort = all
+          .filter(e => e['Daily_Tank_Data.FVFerm'] === name)
+          .map(e => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
+
+        const brewRowsForSort = brewRows.map(e => ({ ...e, _type: 'brew' }))
+        const xferRowsForSort = xferRows.map(e => ({ ...e, _type: 'xfer' }))
+
+        const candidates = [...ferRowsForSort, ...brewRowsForSort, ...xferRowsForSort]
+
         if (!candidates.length) {
           map[name] = makeEmptyEntry(name)
           return
@@ -196,19 +202,14 @@ console.log(
               .includes('packaging data')
         )
         if (packagingForBatch) {
-          map[name] = makeEmptyEntry(
-            name,
-            parseDate(packagingForBatch.DateFerm)
-          )
+          map[name] = makeEmptyEntry(name, parseDate(packagingForBatch.DateFerm))
           return
         }
         // ───────────────────────────────────────────────────────────────
 
         // build gravity history & baseAvgOE
         const history = all
-          .filter(
-            e => e.EX === batch && e['Daily_Tank_Data.GravityFerm']
-          )
+          .filter(e => e.EX === batch && e['Daily_Tank_Data.GravityFerm'])
           .map(e => ({
             date: parseDate(e['DateFerm']),
             g: parseFloat(e['Daily_Tank_Data.GravityFerm'])
@@ -217,9 +218,7 @@ console.log(
           .sort((a, b) => a.date - b.date)
 
         const OEs = all
-          .filter(
-            e => e.EX === batch && e['Brewing_Day_Data.Original_Gravity']
-          )
+          .filter(e => e.EX === batch && e['Brewing_Day_Data.Original_Gravity'])
           .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
           .filter(v => !isNaN(v))
         const baseAvgOE = OEs.length
@@ -235,15 +234,12 @@ console.log(
           }))
           .filter(h => !isNaN(h.p))
           .sort((a, b) => a.date - b.date)
-        const lastPH = pHHistory.length
-          ? pHHistory[pHHistory.length - 1].p
-          : null
+        const lastPH = pHHistory.length ? pHHistory[pHHistory.length - 1].p : null
 
         // defaults
         let stage = ''
         let pHValue = null
-        let carb = null,
-          dox = null
+        let carb = null, dox = null
         let bbtVol = null
         let totalVolume = 0
 
@@ -258,11 +254,25 @@ console.log(
         // b) brewing day
         else if (rec._type === 'brew') {
           stage = 'Brewing Day Data'
-          // Sum up *all* "Volume_into_FV" entries for this tank today:
-          totalVolume = brewRows.reduce(
+
+          // Filter brewRows to only keep rows whose EX === current batch
+          const brewRowsForBatch = brewRows.filter(e => e.EX === batch)
+
+          // (Optional) TEMP LOG to confirm correct entries:
+          // console.log(
+          //   `Summing brewRowsForBatch for tank ${name}, batch=${batch}:`,
+          //   brewRowsForBatch.map(r => ({
+          //     date: r.DateFerm,
+          //     vol: r['Brewing_Day_Data.Volume_into_FV']
+          //   }))
+          // )
+
+          // Sum exactly those entries (e.g. 1490 + 1480 = 2970)
+          totalVolume = brewRowsForBatch.reduce(
             (sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
             0
           )
+
           pHValue = brewFallbackPH
         }
         // c) fermentation / daily / crashed / D.H.
@@ -283,8 +293,7 @@ console.log(
             totalVolume = all
               .filter(e => e.EX === batch)
               .reduce(
-                (s, e) =>
-                  s + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
+                (s, e) => s + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
                 0
               )
           }
@@ -549,7 +558,7 @@ console.log(
               ? ((dexABV / 100 * baseV) / dispV * 100).toFixed(1)
               : null
 
-          // mini‐chart
+          // mini-chart
           const labels =
             incOE !== null
               ? ['OG', ...history.map(h => h.date.toLocaleDateString('en-AU'))]
@@ -603,7 +612,7 @@ console.log(
                   right: '4px',
                   background: 'transparent',
                   border: 'none',
-                  fontSize: '8px' /* half of 16px */,
+                  fontSize: '8px', /* half of 16px */
                   cursor: 'pointer'
                 }}
               >
