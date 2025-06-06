@@ -934,7 +934,8 @@ export default function Home() {
                           legend: { display: false },
                           tooltip: {
                             callbacks: {
-                              label: (ctx) => `${ctx.parsed.y.toFixed(1)} °P`
+                              label: (ctx) => `${ctx.parsed.y.toFixed(1)} °
+P`
                             }
                           }
                         },
