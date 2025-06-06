@@ -124,8 +124,8 @@ export default function Home() {
 
       // Assemble per‐tank data
       const tanks = [
-        'FV1','FV2','FV3','FV4','FV5','FV6','FV7',
-        'FV8','FV9','FV10','FVL1','FVL2','FVL3'
+        'FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7',
+        'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'
       ]
       const map = {}
 
@@ -156,8 +156,40 @@ export default function Home() {
         // ignore Frigid errors here; we’ll attach nulls if missing
       }
 
+      const findSplitTransfer = (tankName) => {
+        // Find all “Transfer Data” rows for this tank
+        const transferRows = all
+          .filter(
+            (e) =>
+              e['What_are_you_filling_out_today_']
+                .toLowerCase()
+                .includes('transfer data') &&
+              e['Transfer_Data.BTTrans'] === tankName
+          )
+          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
+
+        if (!transferRows.length) return null
+        transferRows.sort((a, b) => b.d - a.d)
+        const latestTrans = transferRows[0]
+        // Only return it if EX (sheet name) contains “split”
+        if (
+          latestTrans.EX &&
+          latestTrans.EX.toLowerCase().includes('split')
+        ) {
+          return {
+            batch: latestTrans.EX,
+            sheetUrl: latestTrans.EY || '',
+            carb: latestTrans['Transfer_Data.Final_Tank_CO2_Carbonation'],
+            dox: latestTrans['Transfer_Data.Final_Tank_Dissolved_Oxygen'],
+            bbtVol: parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) || 0,
+            lastUpdate: latestTrans.d
+          }
+        }
+        return null
+      }
+
       tanks.forEach((name) => {
-        // 1) Check for “Packaging Data”
+        // 1) Check for “Packaging Data” (fermentation packaging)
         const ferRows = all.filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
         const packaging = ferRows.find((e) =>
           e['What_are_you_filling_out_today_']
@@ -166,51 +198,29 @@ export default function Home() {
         )
 
         if (packaging) {
-          // Before marking empty, check for a “split” transfer row
-          const transferRows = all
-            .filter(
-              (e) =>
-                e['What_are_you_filling_out_today_']
-                  .toLowerCase()
-                  .includes('transfer data') &&
-                e['Transfer_Data.BTTrans'] === name
-            )
-            .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
-
-          if (transferRows.length) {
-            // Pick the most recent transfer row
-            transferRows.sort((a, b) => b.d - a.d)
-            const latestTrans = transferRows[0]
-            // If its EX (file name) contains “split”
-            if (
-              latestTrans.EX &&
-              latestTrans.EX.toLowerCase().includes('split')
-            ) {
-              map[name] = {
-                tank: name,
-                batch: latestTrans.EX,
-                sheetUrl: latestTrans.EY || '',
-                // Force stage to “Brite” so that it displays carb/dox properly:
-                stage: 'Brite',
-                isEmpty: false,
-                baseAvgOE: null,
-                history: [],
-                brewFallbackPH: null,
-                pHValue: null,
-                bbtVol:
-                  parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
-                  0,
-                carb: latestTrans['Transfer_Data.Final_Tank_CO2_Carbonation'],
-                dox: latestTrans['Transfer_Data.Final_Tank_Dissolved_Oxygen'],
-                totalVolume:
-                  parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
-                  0,
-                temperature: tempMap[name]?.temperature || null,
-                setPoint: tempMap[name]?.setPoint || null,
-                lastUpdate: latestTrans.d
-              }
-              return
+          // If packaging exists, before marking empty, check for “split” transfer
+          const splitTrans = findSplitTransfer(name)
+          if (splitTrans) {
+            // Render as Brite (transfer) tile
+            map[name] = {
+              tank: name,
+              batch: splitTrans.batch,
+              sheetUrl: splitTrans.sheetUrl,
+              stage: 'Brite',
+              isEmpty: false,
+              baseAvgOE: null,
+              history: [],
+              brewFallbackPH: null,
+              pHValue: null,
+              bbtVol: splitTrans.bbtVol,
+              carb: splitTrans.carb,
+              dox: splitTrans.dox,
+              totalVolume: splitTrans.bbtVol,
+              temperature: tempMap[name]?.temperature || null,
+              setPoint: tempMap[name]?.setPoint || null,
+              lastUpdate: splitTrans.lastUpdate
             }
+            return
           }
           // Otherwise, truly empty
           map[name] = makeEmptyEntry(name, parseDate(packaging.DateFerm))
@@ -244,7 +254,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3) Transfer‐data entries
+        // 3) Transfer‐data entries (we’ll also handle “split” in the empty‐candidate case)
         const xferRows = all
           .filter(
             (e) =>
@@ -255,7 +265,7 @@ export default function Home() {
           )
           .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 4) Pick newest overall (fermentation, brewing, or transfer)
+        // 4) Pick newest overall (could be fermentation, brewing, or transfer)
         const ferRowsForSort = all
           .filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
           .map((e) => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
@@ -270,16 +280,42 @@ export default function Home() {
         ]
 
         if (!candidates.length) {
+          // No fermentation, no brewing, no transfer → tile is “empty” by normal logic
+          // But before finalizing “empty,” check for “split” in any transfer
+          const splitTrans = findSplitTransfer(name)
+          if (splitTrans) {
+            map[name] = {
+              tank: name,
+              batch: splitTrans.batch,
+              sheetUrl: splitTrans.sheetUrl,
+              stage: 'Brite',
+              isEmpty: false,
+              baseAvgOE: null,
+              history: [],
+              brewFallbackPH: null,
+              pHValue: null,
+              bbtVol: splitTrans.bbtVol,
+              carb: splitTrans.carb,
+              dox: splitTrans.dox,
+              totalVolume: splitTrans.bbtVol,
+              temperature: tempMap[name]?.temperature || null,
+              setPoint: tempMap[name]?.setPoint || null,
+              lastUpdate: splitTrans.lastUpdate
+            }
+            return
+          }
+          // Otherwise truly empty
           map[name] = makeEmptyEntry(name)
           return
         }
+
         candidates.sort((a, b) => b.d - a.d)
         const rec = candidates[0]
         const batch = rec.EX
         const sheetUrl = rec.EY || ''
         const lastUpdate = rec.d
 
-        // ─── Secondary Packaging Check ───────────────────────────────────
+        // ─── Secondary Packaging Check for this batch ───────────────────────────────────
         const packagingForBatch = all.find(
           (e) =>
             e.EX === batch &&
@@ -296,7 +332,7 @@ export default function Home() {
         }
         // ───────────────────────────────────────────────────────────────
 
-        // Build gravity history & baseAvgOE
+        // build gravity history & baseAvgOE
         const history = all
           .filter((e) => e.EX === batch && e['Daily_Tank_Data.GravityFerm'])
           .map((e) => ({
@@ -316,7 +352,7 @@ export default function Home() {
           ? OEs.reduce((a, b) => a + b, 0) / OEs.length
           : null
 
-        // Build pH history
+        // build pH history
         const pHHistory = all
           .filter((e) => e.EX === batch && e['Daily_Tank_Data.pHFerm'])
           .map((e) => ({
@@ -329,7 +365,7 @@ export default function Home() {
           ? pHHistory[pHHistory.length - 1].p
           : null
 
-        // Defaults
+        // defaults
         let stage = ''
         let pHValue = null
         let carb = null,
@@ -337,7 +373,7 @@ export default function Home() {
         let bbtVol = null
         let totalVolume = 0
 
-        // a) Transfer data → “Brite”
+        // a) transfer data → “Brite”
         if (rec._type === 'xfer') {
           stage = 'Brite'
           carb = rec['Transfer_Data.Final_Tank_CO2_Carbonation'] || ''
@@ -345,7 +381,7 @@ export default function Home() {
           bbtVol = rec['Transfer_Data.Final_Tank_Volume'] || ''
           totalVolume = parseFloat(bbtVol) || 0
         }
-        // b) Brewing day
+        // b) brewing day
         else if (rec._type === 'brew') {
           stage = 'Brewing Day Data'
           const brewRowsForBatch = brewRows.filter((e) => e.EX === batch)
@@ -356,7 +392,7 @@ export default function Home() {
           )
           pHValue = brewFallbackPH
         }
-        // c) Fermentation / daily / crashed / D.H.
+        // c) fermentation / daily / crashed / D.H.
         else {
           const raw =
             rec['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
@@ -934,8 +970,7 @@ export default function Home() {
                           legend: { display: false },
                           tooltip: {
                             callbacks: {
-                              label: (ctx) => `${ctx.parsed.y.toFixed(1)} °
-P`
+                              label: (ctx) => `${ctx.parsed.y.toFixed(1)} °P`
                             }
                           }
                         },
