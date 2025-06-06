@@ -124,7 +124,6 @@ export default function Home() {
         const frigidJson = await frigidProxy.json()
         frigidJson.forEach(item => {
           if (item.tank) {
-            // Some setPoint fields are JSON strings, so attempt parsing:
             let sp = item.setPoint
             try {
               const parsed = JSON.parse(item.setPoint)
@@ -136,7 +135,7 @@ export default function Home() {
             }
             tempMap[item.tank] = {
               temperature: parseFloat(item.temperature),
-              setPoint: isNaN(sp) ? null : sp
+              setPoint: isFinite(sp) ? sp : null
             }
           }
         })
@@ -177,7 +176,7 @@ export default function Home() {
           return
         }
 
-        // 3b) brewing‐day entries (grab every “Brewing Day Data” row for this FV)
+        // 3b) brewing‐day entries
         const brewRows = all
           .filter(
             e =>
@@ -215,7 +214,7 @@ export default function Home() {
           )
           .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 3d) pick newest overall (could be fermentation, brewing, or transfer)
+        // 3d) pick newest overall
         const ferRowsForSort = all
           .filter(e => e['Daily_Tank_Data.FVFerm'] === name)
           .map(e => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
@@ -251,7 +250,6 @@ export default function Home() {
           map[name] = makeEmptyEntry(name, parseDate(packagingForBatch.DateFerm))
           return
         }
-        // ───────────────────────────────────────────────────────────────
 
         // build gravity history & baseAvgOE
         const history = all
@@ -305,16 +303,11 @@ export default function Home() {
         // b) brewing day
         else if (rec._type === 'brew') {
           stage = 'Brewing Day Data'
-
-          // Filter brewRows to only keep rows whose EX === current batch
           const brewRowsForBatch = brewRows.filter(e => e.EX === batch)
-
-          // Sum exactly those entries (e.g. 1490 + 1480 = 2970)
           totalVolume = brewRowsForBatch.reduce(
             (sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
             0
           )
-
           pHValue = brewFallbackPH
         }
         // c) fermentation / daily / crashed / D.H.
@@ -749,27 +742,36 @@ export default function Home() {
                   )}
 
                   {/* ─── Display Actual Temp and Set Temp ─────────────────────── */}
-                  {temperature !== null && setPoint !== null && (
-                    <p>
-                      <a
-                        href="https://app.frigid.cloud/app/dashboard"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontWeight: 'bold', color: 'black', textDecoration: 'none' }}
-                      >
-                        Actual Temp:
-                      </a>{' '}
-                      {temperature.toFixed(1)}°C{'  '}
-                      <a
-                        href="https://app.frigid.cloud/app/dashboard"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontWeight: 'bold', color: 'black', textDecoration: 'none' }}
-                      >
-                        Set Temp:
-                      </a>{' '}
-                      {setPoint.toFixed(1)}°C
-                    </p>
+                  {typeof temperature === 'number' &&
+                    typeof setPoint === 'number' && (
+                      <p>
+                        <a
+                          href="https://app.frigid.cloud/app/dashboard"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontWeight: 'bold',
+                            color: 'black',
+                            textDecoration: 'none'
+                          }}
+                        >
+                          Actual Temp:
+                        </a>{' '}
+                        {temperature.toFixed(1)}°C{'  '}
+                        <a
+                          href="https://app.frigid.cloud/app/dashboard"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            fontWeight: 'bold',
+                            color: 'black',
+                            textDecoration: 'none'
+                          }}
+                        >
+                          Set Temp:
+                        </a>{' '}
+                        {setPoint.toFixed(1)}°C
+                      </p>
                   )}
                   {/* ───────────────────────────────────────────────────────────── */}
 
