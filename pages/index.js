@@ -190,7 +190,8 @@ export default function Home() {
                 tank: name,
                 batch: latestTrans.EX,
                 sheetUrl: latestTrans.EY || '',
-                stage: latestTrans['What_are_you_filling_out_today_'],
+                // Force stage to “Brite” so that it displays carb/dox properly:
+                stage: 'Brite',
                 isEmpty: false,
                 baseAvgOE: null,
                 history: [],
@@ -381,7 +382,7 @@ export default function Home() {
           }
         }
 
-        // Initially attach null temperature / setPoint
+        // Attach temperature / setPoint if available
         map[name] = {
           tank: name,
           batch,
@@ -851,7 +852,7 @@ export default function Home() {
                       onClick={() => handleAddDex(tank)}
                       style={{
                         height: '28px',
-                        minWidth: '60px',  
+                        minWidth: '60px',
                         fontSize: '12px',
                         padding: '0 4px'
                       }}
