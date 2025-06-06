@@ -13,7 +13,7 @@ import {
 } from 'chart.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Apps Script Web App URL (runs pullRecentSheets on the Master sheet)
+// 1) Apps Script Web App URL (runs pullRecentSheets on the Master sheet)
 // ─────────────────────────────────────────────────────────────────────────────
 const APPS_SCRIPT_URL =
   'https://script.google.com/macros/s/AKfycbyNdtYSZ2flZliWUVM6az4G5WrjmjhM-80SqG1XAedkBYg8XV-v2Fc97F99G3TH6dPj/exec'
@@ -122,112 +122,27 @@ export default function Home() {
         return o
       })
 
-      // Assemble per‐tank data
+      // Assemble per‐tank data exactly as before
       const tanks = [
         'FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7',
         'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'
       ]
       const map = {}
 
-      // Prebuild a Frigid temperature map so we can attach .temperature/.setPoint later
-      let tempMap = {}
-      try {
-        const frigidProxy = await fetch('/api/frigid')
-        if (frigidProxy.ok) {
-          const frigidJson = await frigidProxy.json()
-          frigidJson.forEach((item) => {
-            if (item.tank) {
-              let sp = item.setPoint
-              try {
-                const parsed = JSON.parse(item.setPoint)
-                if (parsed.value !== undefined) sp = parseFloat(parsed.value)
-              } catch {
-                sp = parseFloat(item.setPoint)
-              }
-              const spNum = isFinite(parseFloat(sp)) ? parseFloat(sp) : null
-              tempMap[item.tank] = {
-                temperature: parseFloat(item.temperature),
-                setPoint: spNum
-              }
-            }
-          })
-        }
-      } catch {
-        // ignore Frigid errors here; we’ll attach nulls if missing
-      }
-
-      const findSplitTransfer = (tankName) => {
-        // Find all “Transfer Data” rows for this tank
-        const transferRows = all
-          .filter(
-            (e) =>
-              e['What_are_you_filling_out_today_']
-                .toLowerCase()
-                .includes('transfer data') &&
-              e['Transfer_Data.BTTrans'] === tankName
-          )
-          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
-
-        if (!transferRows.length) return null
-        transferRows.sort((a, b) => b.d - a.d)
-        const latestTrans = transferRows[0]
-        // Only return it if EX (sheet name) contains “split”
-        if (
-          latestTrans.EX &&
-          latestTrans.EX.toLowerCase().includes('split')
-        ) {
-          return {
-            batch: latestTrans.EX,
-            sheetUrl: latestTrans.EY || '',
-            carb: latestTrans['Transfer_Data.Final_Tank_CO2_Carbonation'],
-            dox: latestTrans['Transfer_Data.Final_Tank_Dissolved_Oxygen'],
-            bbtVol: parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) || 0,
-            lastUpdate: latestTrans.d
-          }
-        }
-        return null
-      }
-
       tanks.forEach((name) => {
-        // 1) Check for “Packaging Data” (fermentation packaging)
+        // 1) packaging → empty
         const ferRows = all.filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
         const packaging = ferRows.find((e) =>
           e['What_are_you_filling_out_today_']
             .toLowerCase()
             .includes('packaging data')
         )
-
         if (packaging) {
-          // If packaging exists, before marking empty, check for “split” transfer
-          const splitTrans = findSplitTransfer(name)
-          if (splitTrans) {
-            // Render as Brite (transfer) tile
-            map[name] = {
-              tank: name,
-              batch: splitTrans.batch,
-              sheetUrl: splitTrans.sheetUrl,
-              stage: 'Brite',
-              isEmpty: false,
-              baseAvgOE: null,
-              history: [],
-              brewFallbackPH: null,
-              pHValue: null,
-              bbtVol: splitTrans.bbtVol,
-              carb: splitTrans.carb,
-              dox: splitTrans.dox,
-              totalVolume: splitTrans.bbtVol,
-              temperature: tempMap[name]?.temperature || null,
-              setPoint: tempMap[name]?.setPoint || null,
-              lastUpdate: splitTrans.lastUpdate
-            }
-            return
-          }
-          // Otherwise, truly empty
           map[name] = makeEmptyEntry(name, parseDate(packaging.DateFerm))
           return
         }
 
-        // 2) Brewing‐day entries
+        // 2) brewing-day entries
         const brewRows = all
           .filter(
             (e) =>
@@ -254,7 +169,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3) Transfer‐data entries (we’ll also handle “split” in the empty‐candidate case)
+        // 3) transfer-data entries
         const xferRows = all
           .filter(
             (e) =>
@@ -265,7 +180,7 @@ export default function Home() {
           )
           .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 4) Pick newest overall (could be fermentation, brewing, or transfer)
+        // 4) pick newest overall (fermentation, brewing, or transfer)
         const ferRowsForSort = all
           .filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
           .map((e) => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
@@ -280,42 +195,16 @@ export default function Home() {
         ]
 
         if (!candidates.length) {
-          // No fermentation, no brewing, no transfer → tile is “empty” by normal logic
-          // But before finalizing “empty,” check for “split” in any transfer
-          const splitTrans = findSplitTransfer(name)
-          if (splitTrans) {
-            map[name] = {
-              tank: name,
-              batch: splitTrans.batch,
-              sheetUrl: splitTrans.sheetUrl,
-              stage: 'Brite',
-              isEmpty: false,
-              baseAvgOE: null,
-              history: [],
-              brewFallbackPH: null,
-              pHValue: null,
-              bbtVol: splitTrans.bbtVol,
-              carb: splitTrans.carb,
-              dox: splitTrans.dox,
-              totalVolume: splitTrans.bbtVol,
-              temperature: tempMap[name]?.temperature || null,
-              setPoint: tempMap[name]?.setPoint || null,
-              lastUpdate: splitTrans.lastUpdate
-            }
-            return
-          }
-          // Otherwise truly empty
           map[name] = makeEmptyEntry(name)
           return
         }
-
         candidates.sort((a, b) => b.d - a.d)
         const rec = candidates[0]
         const batch = rec.EX
         const sheetUrl = rec.EY || ''
         const lastUpdate = rec.d
 
-        // ─── Secondary Packaging Check for this batch ───────────────────────────────────
+        // ─── Secondary Packaging Check ───────────────────────────────────
         const packagingForBatch = all.find(
           (e) =>
             e.EX === batch &&
@@ -418,7 +307,7 @@ export default function Home() {
           }
         }
 
-        // Attach temperature / setPoint if available
+        // Initially attach null temperature / setPoint
         map[name] = {
           tank: name,
           batch,
@@ -433,11 +322,40 @@ export default function Home() {
           carb,
           dox,
           totalVolume,
-          temperature: tempMap[name]?.temperature || null,
-          setPoint: tempMap[name]?.setPoint || null,
+          temperature: null,
+          setPoint: null,
           lastUpdate
         }
       })
+
+      // ─── Fetch Frigid data (but do NOT abort if this fails) ──────────────
+      try {
+        const frigidProxy = await fetch('/api/frigid')
+        if (frigidProxy.ok) {
+          const frigidJson = await frigidProxy.json()
+          frigidJson.forEach((item) => {
+            if (item.tank && map[item.tank]) {
+              let sp = item.setPoint
+              try {
+                const parsed = JSON.parse(item.setPoint)
+                if (parsed.value !== undefined) sp = parseFloat(parsed.value)
+              } catch {
+                sp = parseFloat(item.setPoint)
+              }
+              const spNum = isFinite(parseFloat(sp)) ? parseFloat(sp) : null
+              map[item.tank].temperature = parseFloat(item.temperature)
+              map[item.tank].setPoint = spNum
+            }
+          })
+        } else {
+          console.warn(
+            '⚠️ /api/frigid returned non-200 status:',
+            frigidProxy.status
+          )
+        }
+      } catch (e) {
+        console.warn('⚠️ Error fetching /api/frigid, continuing without temp:', e)
+      }
 
       // ─── Remove duplicate batches ────────────────────────────────────────
       const byBatch = {}
