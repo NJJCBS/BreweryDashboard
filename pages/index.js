@@ -14,7 +14,7 @@ import {
 
 // Client‐only React wrapper for Chart.js
 const Line = dynamic(
-  () => import('react-chartjs-2').then(m => m.Line),
+  () => import('react-chartjs-2').then((m) => m.Line),
   { ssr: false }
 )
 
@@ -60,13 +60,16 @@ export default function Home() {
   }, [])
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
-  const parseDate = ds => {
+  const parseDate = (ds) => {
     if (!ds) return new Date(0)
     const [d, m, y] = ds.split(/[/\s:]+/).map((v, i) => (i < 3 ? +v : null))
     return new Date(y, m - 1, d)
   }
-  const platoToSG = p =>
-    1.00001 + 0.0038661 * p + 0.000013488 * p * p + 0.000000043074 * p * p * p
+  const platoToSG = (p) =>
+    1.00001 +
+    0.0038661 * p +
+    0.000013488 * p * p +
+    0.000000043074 * p * p * p
   const calcLegacy = (OE, AE) => {
     const num = OE - AE
     const den = 2.0665 - 0.010665 * OE
@@ -106,45 +109,13 @@ export default function Home() {
       }
 
       const headers = rows[0]
-      const all = rows.slice(1).map(r => {
+      const all = rows.slice(1).map((r) => {
         const o = {}
         headers.forEach((h, i) => (o[h] = r[i] || ''))
         return o
       })
 
-      // 2) Fetch Frigid API via our own Next.js route
-      let tempMap = {}
-      try {
-        const frigidProxy = await fetch('/api/frigid')
-        if (!frigidProxy.ok) {
-          const errBody = await frigidProxy.text()
-          console.error('❌ /api/frigid responded', frigidProxy.status, errBody)
-          throw new Error('/api/frigid error')
-        }
-        const frigidJson = await frigidProxy.json()
-        frigidJson.forEach(item => {
-          if (item.tank) {
-            let sp = item.setPoint
-            try {
-              const parsed = JSON.parse(item.setPoint)
-              if (parsed.value !== undefined) {
-                sp = parseFloat(parsed.value)
-              }
-            } catch {
-              sp = parseFloat(item.setPoint)
-            }
-            tempMap[item.tank] = {
-              temperature: parseFloat(item.temperature),
-              setPoint: isFinite(sp) ? sp : null
-            }
-          }
-        })
-      } catch (frErr) {
-        console.error('❌ Fetching /api/frigid failed:', frErr)
-        throw frErr
-      }
-
-      // 3) Assemble per‐tank data
+      // 2) Build the empty/initial map for all 13 tanks, based on Sheets logic
       const tanks = [
         'FV1',
         'FV2',
@@ -162,34 +133,35 @@ export default function Home() {
       ]
       const map = {}
 
-      tanks.forEach(name => {
-        // 3a) packaging → empty
-        const ferRows = all.filter(e => e['Daily_Tank_Data.FVFerm'] === name)
-        const packaging = ferRows.find(
-          e =>
-            e['What_are_you_filling_out_today_']
-              .toLowerCase()
-              .includes('packaging data')
+      tanks.forEach((name) => {
+        // 2a) packaging → empty
+        const ferRows = all.filter(
+          (e) => e['Daily_Tank_Data.FVFerm'] === name
+        )
+        const packaging = ferRows.find((e) =>
+          e['What_are_you_filling_out_today_']
+            .toLowerCase()
+            .includes('packaging data')
         )
         if (packaging) {
           map[name] = makeEmptyEntry(name, parseDate(packaging.DateFerm))
           return
         }
 
-        // 3b) brewing‐day entries
+        // 2b) brewing‐day entries
         const brewRows = all
           .filter(
-            e =>
+            (e) =>
               e['What_are_you_filling_out_today_']
                 .toLowerCase()
                 .includes('brewing day data') &&
               e['Brewing_Day_Data.FV_Tank'] === name
           )
-          .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
+          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
         console.log(
           `>>> brewRows for tank ${name}:`,
-          brewRows.map(r => ({
+          brewRows.map((r) => ({
             batch: r.EX,
             date: r.DateFerm,
             volume: r['Brewing_Day_Data.Volume_into_FV']
@@ -203,24 +175,24 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3c) transfer‐data entries
+        // 2c) transfer‐data entries
         const xferRows = all
           .filter(
-            e =>
+            (e) =>
               e['What_are_you_filling_out_today_']
                 .toLowerCase()
                 .includes('transfer data') &&
               e['Transfer_Data.BTTrans'] === name
           )
-          .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
+          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 3d) pick newest overall
+        // 2d) pick newest overall (could be fermentation, brewing, or transfer)
         const ferRowsForSort = all
-          .filter(e => e['Daily_Tank_Data.FVFerm'] === name)
-          .map(e => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
+          .filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
+          .map((e) => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
 
-        const brewRowsForSort = brewRows.map(e => ({ ...e, _type: 'brew' }))
-        const xferRowsForSort = xferRows.map(e => ({ ...e, _type: 'xfer' }))
+        const brewRowsForSort = brewRows.map((e) => ({ ...e, _type: 'brew' }))
+        const xferRowsForSort = xferRows.map((e) => ({ ...e, _type: 'xfer' }))
 
         const candidates = [
           ...ferRowsForSort,
@@ -240,45 +212,49 @@ export default function Home() {
 
         // ─── SECONDARY PACKAGING CHECK ─────────────────────────────────
         const packagingForBatch = all.find(
-          e =>
+          (e) =>
             e.EX === batch &&
             e['What_are_you_filling_out_today_']
               .toLowerCase()
               .includes('packaging data')
         )
         if (packagingForBatch) {
-          map[name] = makeEmptyEntry(name, parseDate(packagingForBatch.DateFerm))
+          map[name] = makeEmptyEntry(
+            name,
+            parseDate(packagingForBatch.DateFerm)
+          )
           return
         }
+        // ───────────────────────────────────────────────────────────────
 
         // build gravity history & baseAvgOE
         const history = all
-          .filter(e => e.EX === batch && e['Daily_Tank_Data.GravityFerm'])
-          .map(e => ({
+          .filter((e) => e.EX === batch && e['Daily_Tank_Data.GravityFerm'])
+          .map((e) => ({
             date: parseDate(e['DateFerm']),
             g: parseFloat(e['Daily_Tank_Data.GravityFerm'])
           }))
-          .filter(h => !isNaN(h.g))
+          .filter((h) => !isNaN(h.g))
           .sort((a, b) => a.date - b.date)
 
         const OEs = all
           .filter(
-            e => e.EX === batch && e['Brewing_Day_Data.Original_Gravity']
+            (e) => e.EX === batch && e['Brewing_Day_Data.Original_Gravity']
           )
-          .map(e => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
-          .filter(v => !isNaN(v))
+          .map((e) => parseFloat(e['Brewing_Day_Data.Original_Gravity']))
+          .filter((v) => !isNaN(v))
         const baseAvgOE = OEs.length
           ? OEs.reduce((a, b) => a + b, 0) / OEs.length
           : null
 
         // build pH history
         const pHHistory = all
-          .filter(e => e.EX === batch && e['Daily_Tank_Data.pHFerm'])
-          .map(e => ({
+          .filter((e) => e.EX === batch && e['Daily_Tank_Data.pHFerm'])
+          .map((e) => ({
             date: parseDate(e['DateFerm']),
             p: parseFloat(e['Daily_Tank_Data.pHFerm'])
           }))
-          .filter(h => !isNaN(h.p))
+          .filter((h) => !isNaN(h.p))
           .sort((a, b) => a.date - b.date)
         const lastPH = pHHistory.length
           ? pHHistory[pHHistory.length - 1].p
@@ -303,16 +279,18 @@ export default function Home() {
         // b) brewing day
         else if (rec._type === 'brew') {
           stage = 'Brewing Day Data'
-          const brewRowsForBatch = brewRows.filter(e => e.EX === batch)
+          const brewRowsForBatch = brewRows.filter((e) => e.EX === batch)
           totalVolume = brewRowsForBatch.reduce(
-            (sum, e) => sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
+            (sum, e) =>
+              sum + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
             0
           )
           pHValue = brewFallbackPH
         }
         // c) fermentation / daily / crashed / D.H.
         else {
-          const raw = rec['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
+          const raw =
+            rec['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
           stage = raw
           pHValue = lastPH !== null ? lastPH : brewFallbackPH
 
@@ -320,26 +298,22 @@ export default function Home() {
             carb = rec['Daily_Tank_Data.Bright_Tank_CarbonationFerm'] || ''
             dox = rec['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'] || ''
             const t = all.find(
-              e => e.EX === batch && e['Transfer_Data.Final_Tank_Volume']
+              (e) => e.EX === batch && e['Transfer_Data.Final_Tank_Volume']
             )
             bbtVol = t ? t['Transfer_Data.Final_Tank_Volume'] : ''
             totalVolume = parseFloat(bbtVol) || 0
           } else {
             totalVolume = all
-              .filter(e => e.EX === batch)
+              .filter((e) => e.EX === batch)
               .reduce(
-                (s, e) => s + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
+                (s, e) =>
+                  s + (parseFloat(e['Brewing_Day_Data.Volume_into_FV']) || 0),
                 0
               )
           }
         }
 
-        // get temperature+setPoint if available
-        const temperature =
-          tempMap[name] !== undefined ? tempMap[name].temperature : null
-        const setPoint =
-          tempMap[name] !== undefined ? tempMap[name].setPoint : null
-
+        // Initially attach null temperature/setPoint.
         map[name] = {
           tank: name,
           batch,
@@ -354,24 +328,57 @@ export default function Home() {
           carb,
           dox,
           totalVolume,
-          temperature,
-          setPoint,
+          temperature: null,
+          setPoint: null,
           lastUpdate
         }
       })
 
-      // ─── Remove duplicate batches ─────────────────────────────────────────────
+      // 3) Attempt to fetch Frigid data, but do NOT throw if it fails.
+      //    We simply overwrite any existing .temperature/.setPoint in map.
+      try {
+        const frigidProxy = await fetch('/api/frigid')
+        if (frigidProxy.ok) {
+          const frigidJson = await frigidProxy.json()
+          frigidJson.forEach((item) => {
+            if (item.tank && map[item.tank]) {
+              // Parse setPoint which might be a JSON string or a number string
+              let sp = item.setPoint
+              try {
+                const parsed = JSON.parse(item.setPoint)
+                if (parsed.value !== undefined) {
+                  sp = parseFloat(parsed.value)
+                }
+              } catch {
+                sp = parseFloat(item.setPoint)
+              }
+              const spNum = isFinite(parseFloat(sp)) ? parseFloat(sp) : null
+              map[item.tank].temperature = parseFloat(item.temperature)
+              map[item.tank].setPoint = spNum
+            }
+          })
+        } else {
+          console.warn(
+            '⚠️ /api/frigid returned non-200 status:',
+            frigidProxy.status
+          )
+        }
+      } catch (e) {
+        console.warn('⚠️ Error fetching /api/frigid, continuing without temp:', e)
+      }
+
+      // 4) Remove duplicate batches (same as before)
       const byBatch = {}
-      Object.values(map).forEach(e => {
+      Object.values(map).forEach((e) => {
         if (e.batch) {
           byBatch[e.batch] = byBatch[e.batch] || []
           byBatch[e.batch].push(e)
         }
       })
-      Object.values(byBatch).forEach(group => {
+      Object.values(byBatch).forEach((group) => {
         if (group.length > 1) {
           group.sort((a, b) => b.lastUpdate - a.lastUpdate)
-          group.slice(1).forEach(e => {
+          group.slice(1).forEach((e) => {
             map[e.tank] = makeEmptyEntry(e.tank, e.lastUpdate)
           })
         }
@@ -381,17 +388,17 @@ export default function Home() {
       setError(false)
 
       // init controls once
-      setDexCounts(dc =>
+      setDexCounts((dc) =>
         Object.keys(dc).length
           ? dc
           : tanks.reduce((o, t) => ({ ...o, [t]: 0 }), {})
       )
-      setFruitInputs(fi =>
+      setFruitInputs((fi) =>
         Object.keys(fi).length
           ? fi
           : tanks.reduce((o, t) => ({ ...o, [t]: '' }), {})
       )
-      setFruitVolumes(fv =>
+      setFruitVolumes((fv) =>
         Object.keys(fv).length
           ? fv
           : tanks.reduce((o, t) => ({ ...o, [t]: 0 }), {})
@@ -410,24 +417,23 @@ export default function Home() {
   }, [fetchData])
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
-  const handleAddDex = tank =>
-    setDexCounts(d => ({ ...d, [tank]: d[tank] + 1 }))
-  const handleClear = tank => {
-    // clear dex, fruit & set tile empty
-    setDexCounts(d => ({ ...d, [tank]: 0 }))
-    setFruitVolumes(fv => ({ ...fv, [tank]: 0 }))
-    setFruitInputs(fi => ({ ...fi, [tank]: '' }))
-    setTankData(td =>
-      td.map(e => (e.tank === tank ? makeEmptyEntry(tank) : e))
+  const handleAddDex = (tank) =>
+    setDexCounts((d) => ({ ...d, [tank]: d[tank] + 1 }))
+  const handleClear = (tank) => {
+    setDexCounts((d) => ({ ...d, [tank]: 0 }))
+    setFruitVolumes((fv) => ({ ...fv, [tank]: 0 }))
+    setFruitInputs((fi) => ({ ...fi, [tank]: '' }))
+    setTankData((td) =>
+      td.map((e) => (e.tank === tank ? makeEmptyEntry(tank) : e))
     )
   }
   const handleFruitChange = (t, v) =>
-    setFruitInputs(fi => ({ ...fi, [t]: v }))
-  const handleAddFruit = tank => {
+    setFruitInputs((fi) => ({ ...fi, [t]: v }))
+  const handleAddFruit = (tank) => {
     const v = parseFloat(fruitInputs[tank])
     if (!v || isNaN(v)) return
-    setFruitVolumes(fv => ({ ...fv, [tank]: fv[tank] + v }))
-    setFruitInputs(fi => ({ ...fi, [tank]: '' }))
+    setFruitVolumes((fv) => ({ ...fv, [tank]: fv[tank] + v }))
+    setFruitInputs((fi) => ({ ...fi, [tank]: '' }))
   }
 
   if (error)
@@ -443,10 +449,10 @@ export default function Home() {
 
   // ─── Summary ───────────────────────────────────────────────────────────────
   const totalTanks = tankData.length
-  const emptyCount = tankData.filter(e => e.isEmpty).length
+  const emptyCount = tankData.filter((e) => e.isEmpty).length
   const occupiedCount = totalTanks - emptyCount
   const totalVol = tankData
-    .filter(e => !e.isEmpty)
+    .filter((e) => !e.isEmpty)
     .reduce((sum, e) => sum + (e.totalVolume || 0), 0)
   const totalVolStr = totalVol.toLocaleString('en-AU')
 
@@ -520,7 +526,7 @@ export default function Home() {
                   legend: { display: false },
                   tooltip: {
                     callbacks: {
-                      label: ctx => `${ctx.parsed.y.toFixed(1)} °P`
+                      label: (ctx) => `${ctx.parsed.y.toFixed(1)} °P`
                     }
                   }
                 },
@@ -533,7 +539,7 @@ export default function Home() {
                     beginAtZero: true,
                     min: 0,
                     title: { display: true, text: 'Gravity (°P)' },
-                    ticks: { callback: v => v.toFixed(1) }
+                    ticks: { callback: (v) => v.toFixed(1) }
                   }
                 }
               }}
@@ -552,7 +558,7 @@ export default function Home() {
           padding: '20px'
         }}
       >
-        {tankData.map(e => {
+        {tankData.map((e) => {
           const {
             tank,
             batch,
@@ -576,7 +582,7 @@ export default function Home() {
           const HL = (totalVolume || 0) / 1000
           const incOE =
             baseAvgOE !== null
-              ? baseAvgOE + (HL > 0 ? 1.3 / HL * dex : 0)
+              ? baseAvgOE + (HL > 0 ? (1.3 / HL) * dex : 0)
               : null
           const curAE = history.length ? history[history.length - 1].g : null
           const displayAE = curAE !== null ? curAE : baseAvgOE
@@ -600,18 +606,16 @@ export default function Home() {
           const dispV = baseV + eff
           const finalABV =
             dexABV !== null
-              ? ((dexABV / 100 * baseV) / dispV * 100).toFixed(1)
+              ? ((dexABV / 100) * baseV / dispV) * 100
               : null
 
           // mini-chart
           const labels =
             incOE !== null
-              ? ['OG', ...history.map(h => h.date.toLocaleDateString('en-AU'))]
-              : history.map(h => h.date.toLocaleDateString('en-AU'))
+              ? ['OG', ...history.map((h) => h.date.toLocaleDateString('en-AU'))]
+              : history.map((h) => h.date.toLocaleDateString('en-AU'))
           const pts =
-            incOE !== null
-              ? [incOE, ...history.map(h => h.g)]
-              : history.map(h => h.g)
+            incOE !== null ? [incOE, ...history.map((h) => h.g)] : history.map((h) => h.g)
 
           // styling
           const style = { ...baseTile }
@@ -641,10 +645,10 @@ export default function Home() {
             <div
               key={tank}
               style={style}
-              onMouseEnter={e =>
+              onMouseEnter={(e) =>
                 (e.currentTarget.style.transform = 'translateY(-4px)')
               }
-              onMouseLeave={e =>
+              onMouseLeave={(e) =>
                 (e.currentTarget.style.transform = 'translateY(0)')
               }
             >
@@ -735,13 +739,13 @@ export default function Home() {
                   <p>
                     <strong>{volLabel}</strong> {dispV.toFixed(1)} L
                   </p>
-                  {finalABV && (
+                  {finalABV !== null && (
                     <p>
-                      <strong>ABV:</strong> {finalABV}%
+                      <strong>ABV:</strong> {finalABV.toFixed(1)}%
                     </p>
                   )}
 
-                  {/* ─── Display Actual Temp and Set Temp ─────────────────────── */}
+                  {/* ─── Display Actual Temp and Set ───────────────────────────── */}
                   {typeof temperature === 'number' &&
                     typeof setPoint === 'number' && (
                       <p>
@@ -768,11 +772,11 @@ export default function Home() {
                             textDecoration: 'none'
                           }}
                         >
-                          Set Temp:
+                          Set:
                         </a>{' '}
                         {setPoint.toFixed(1)}°C
                       </p>
-                  )}
+                    )}
                   {/* ───────────────────────────────────────────────────────────── */}
 
                   {/* Controls: Add Dex, count, trash, fruit, + */}
@@ -809,8 +813,8 @@ export default function Home() {
                     </span>
                     <button
                       onClick={() => {
-                        setDexCounts(dc => ({ ...dc, [tank]: 0 }))
-                        setFruitVolumes(fv => ({ ...fv, [tank]: 0 }))
+                        setDexCounts((dc) => ({ ...dc, [tank]: 0 }))
+                        setFruitVolumes((fv) => ({ ...fv, [tank]: 0 }))
                       }}
                       style={{
                         height: '28px',
@@ -827,7 +831,9 @@ export default function Home() {
                       type="text"
                       placeholder="fruit"
                       value={fruitInputs[tank] || ''}
-                      onChange={e => handleFruitChange(tank, e.target.value)}
+                      onChange={(e) =>
+                        handleFruitChange(tank, e.target.value)
+                      }
                       style={{
                         height: '28px',
                         width: '50px',
@@ -868,7 +874,7 @@ export default function Home() {
                           legend: { display: false },
                           tooltip: {
                             callbacks: {
-                              label: ctx => `${ctx.parsed.y.toFixed(1)} °P`
+                              label: (ctx) => `${ctx.parsed.y.toFixed(1)} °P`
                             }
                           }
                         },
@@ -878,7 +884,7 @@ export default function Home() {
                             beginAtZero: true,
                             min: 0,
                             max: pts[0],
-                            ticks: { callback: v => v.toFixed(1) }
+                            ticks: { callback: (v) => v.toFixed(1) }
                           }
                         }
                       }}
