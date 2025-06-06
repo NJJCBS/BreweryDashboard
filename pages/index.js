@@ -122,7 +122,7 @@ export default function Home() {
         return o
       })
 
-      // Assemble per‐tank data exactly as before
+      // Assemble per‐tank data
       const tanks = [
         'FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7',
         'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'
@@ -130,19 +130,76 @@ export default function Home() {
       const map = {}
 
       tanks.forEach((name) => {
-        // 1) packaging → empty
+        // 1) Find all “transfer data” rows for this tank, sorted by date
+        const transferRows = all
+          .filter(
+            (e) =>
+              e['What_are_you_filling_out_today_']
+                .toLowerCase()
+                .includes('transfer data') &&
+              e['Transfer_Data.BTTrans'] === name
+          )
+          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
+          .sort((a, b) => b.d - a.d) // descending by date
+
+        // 2) Find all packaging rows (fermentation rows with packaging)
         const ferRows = all.filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
-        const packaging = ferRows.find((e) =>
+        const packagingRows = ferRows.filter((e) =>
           e['What_are_you_filling_out_today_']
             .toLowerCase()
             .includes('packaging data')
         )
-        if (packaging) {
-          map[name] = makeEmptyEntry(name, parseDate(packaging.DateFerm))
+        // If any packaging, pick the most recent packaging
+        let mostRecentPackagingDate = null
+        if (packagingRows.length) {
+          packagingRows.sort((a, b) =>
+            parseDate(b.DateFerm) - parseDate(a.DateFerm)
+          )
+          mostRecentPackagingDate = parseDate(packagingRows[0].DateFerm)
+        }
+
+        // 3) If packaging exists, check if most recent transfer row is newer
+        if (mostRecentPackagingDate) {
+          const latestTrans = transferRows[0] || null
+          if (
+            latestTrans &&
+            latestTrans.d > mostRecentPackagingDate &&
+            latestTrans.EX &&
+            latestTrans.EX.toLowerCase().includes('split')
+          ) {
+            // Transfer is newer than packaging AND EX contains “split” → Brite
+            map[name] = {
+              tank: name,
+              batch: latestTrans.EX,
+              sheetUrl: latestTrans.EY || '',
+              stage: latestTrans['What_are_you_filling_out_today_'],
+              isEmpty: false,
+              baseAvgOE: null,
+              history: [],
+              brewFallbackPH: null,
+              pHValue: null,
+              bbtVol:
+                parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
+                0,
+              carb: latestTrans['Transfer_Data.Final_Tank_CO2_Carbonation'],
+              dox:
+                latestTrans['Transfer_Data.Final_Tank_Dissolved_Oxygen'],
+              totalVolume:
+                parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
+                0,
+              temperature: tempMap[name]?.temperature || null,
+              setPoint: tempMap[name]?.setPoint || null,
+              lastUpdate: latestTrans.d
+            }
+            return
+          }
+          // Otherwise, packaging is the latest relevant event → truly empty
+          map[name] = makeEmptyEntry(name, mostRecentPackagingDate)
           return
         }
 
-        // 2) brewing-day entries
+        // 4) No packaging → proceed with normal “find latest among fer/brew/xfer”
+        // 4a) brewing-day entries
         const brewRows = all
           .filter(
             (e) =>
@@ -153,15 +210,6 @@ export default function Home() {
           )
           .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        console.log(
-          `>>> brewRows for tank ${name}:`,
-          brewRows.map((r) => ({
-            batch: r.EX,
-            date: r.DateFerm,
-            volume: r['Brewing_Day_Data.Volume_into_FV']
-          }))
-        )
-
         let brewFallbackPH = null
         if (brewRows.length) {
           brewRows.sort((a, b) => b.d - a.d)
@@ -169,24 +217,16 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3) transfer-data entries
-        const xferRows = all
-          .filter(
-            (e) =>
-              e['What_are_you_filling_out_today_']
-                .toLowerCase()
-                .includes('transfer data') &&
-              e['Transfer_Data.BTTrans'] === name
-          )
-          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
+        // 4b) transfer-data entries (already in transferRows sorted)
+        // (We reuse transferRows array; no need to re-fetch)
 
-        // 4) pick newest overall (fermentation, brewing, or transfer)
+        // 4c) fermentation rows for sorting
         const ferRowsForSort = all
           .filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
           .map((e) => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
 
         const brewRowsForSort = brewRows.map((e) => ({ ...e, _type: 'brew' }))
-        const xferRowsForSort = xferRows.map((e) => ({ ...e, _type: 'xfer' }))
+        const xferRowsForSort = transferRows.map((e) => ({ ...e, _type: 'xfer' }))
 
         const candidates = [
           ...ferRowsForSort,
@@ -322,8 +362,8 @@ export default function Home() {
           carb,
           dox,
           totalVolume,
-          temperature: null,
-          setPoint: null,
+          temperature: tempMap[name]?.temperature || null,
+          setPoint: tempMap[name]?.setPoint || null,
           lastUpdate
         }
       })
