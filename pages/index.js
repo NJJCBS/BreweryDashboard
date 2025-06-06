@@ -12,6 +12,12 @@ import {
   Legend
 } from 'chart.js'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 1) Apps Script Web App URL (runs pullRecentSheets on the Master sheet)
+// ─────────────────────────────────────────────────────────────────────────────
+const APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycbyNdtYSZ2flZliWUVM6az4G5WrjmjhM-80SqG1XAedkBYg8XV-v2Fc97F99G3TH6dPj/exec'
+
 // Client‐only React wrapper for Chart.js
 const Line = dynamic(
   () => import('react-chartjs-2').then((m) => m.Line),
@@ -86,10 +92,10 @@ export default function Home() {
     return isFinite(abv) ? abv : null
   }
 
-  // ─── Fetch & assemble dashboard data ────────────────────────────────────────
-  const fetchData = useCallback(async () => {
+  // ─── Core: Fetch the dashboard data (Sheets + Frigid), but NO Apps Script call here ────
+  const fetchDashboardData = useCallback(async () => {
     try {
-      // 1) Fetch Google Sheets data
+      // 1) Fetch “Master Dashboard Data” via Google Sheets API
       const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnjm0'
       const range = 'A1:ZZ1000'
       const apiKey = 'AIzaSyDIcqb7GydD5J5H9O_psCdL1vmH5Lka4l8'
@@ -98,16 +104,17 @@ export default function Home() {
       const res = await fetch(url)
       if (!res.ok) {
         const text = await res.text()
-        console.error('❌ Sheets responded', res.status, text)
-        throw new Error('Sheets fetch error')
+        console.error('Sheets API responded with error', res.status, text)
+        throw new Error('Error fetching sheet data')
       }
       const json = await res.json()
       const rows = json.values
       if (!rows || rows.length < 2) {
-        console.error('❌ Sheets returned too few rows')
+        console.error('Sheets returned too few rows.')
         throw new Error('No data in Sheets')
       }
 
+      // Map rows to objects
       const headers = rows[0]
       const all = rows.slice(1).map((r) => {
         const o = {}
@@ -115,29 +122,16 @@ export default function Home() {
         return o
       })
 
-      // 2) Build the empty/initial map for all 13 tanks, based on Sheets logic
+      // Assemble per‐tank data exactly as before
       const tanks = [
-        'FV1',
-        'FV2',
-        'FV3',
-        'FV4',
-        'FV5',
-        'FV6',
-        'FV7',
-        'FV8',
-        'FV9',
-        'FV10',
-        'FVL1',
-        'FVL2',
-        'FVL3'
+        'FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7',
+        'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'
       ]
       const map = {}
 
       tanks.forEach((name) => {
-        // 2a) packaging → empty
-        const ferRows = all.filter(
-          (e) => e['Daily_Tank_Data.FVFerm'] === name
-        )
+        // 1) packaging → empty
+        const ferRows = all.filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
         const packaging = ferRows.find((e) =>
           e['What_are_you_filling_out_today_']
             .toLowerCase()
@@ -148,7 +142,7 @@ export default function Home() {
           return
         }
 
-        // 2b) brewing‐day entries
+        // 2) brewing-day entries
         const brewRows = all
           .filter(
             (e) =>
@@ -175,7 +169,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 2c) transfer‐data entries
+        // 3) transfer-data entries
         const xferRows = all
           .filter(
             (e) =>
@@ -186,7 +180,7 @@ export default function Home() {
           )
           .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 2d) pick newest overall (could be fermentation, brewing, or transfer)
+        // 4) pick newest overall (fermentation, brewing, or transfer)
         const ferRowsForSort = all
           .filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
           .map((e) => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
@@ -210,7 +204,7 @@ export default function Home() {
         const sheetUrl = rec.EY || ''
         const lastUpdate = rec.d
 
-        // ─── SECONDARY PACKAGING CHECK ─────────────────────────────────
+        // ─── Secondary Packaging Check ───────────────────────────────────
         const packagingForBatch = all.find(
           (e) =>
             e.EX === batch &&
@@ -268,7 +262,7 @@ export default function Home() {
         let bbtVol = null
         let totalVolume = 0
 
-        // a) transfer data → "Brite"
+        // a) transfer data → “Brite”
         if (rec._type === 'xfer') {
           stage = 'Brite'
           carb = rec['Transfer_Data.Final_Tank_CO2_Carbonation'] || ''
@@ -313,7 +307,7 @@ export default function Home() {
           }
         }
 
-        // Initially attach null temperature/setPoint.
+        // Initially attach null temperature / setPoint
         map[name] = {
           tank: name,
           batch,
@@ -334,21 +328,17 @@ export default function Home() {
         }
       })
 
-      // 3) Attempt to fetch Frigid data, but do NOT throw if it fails.
-      //    We simply overwrite any existing .temperature/.setPoint in map.
+      // ─── Fetch Frigid data (but do NOT abort if this fails) ──────────────
       try {
         const frigidProxy = await fetch('/api/frigid')
         if (frigidProxy.ok) {
           const frigidJson = await frigidProxy.json()
           frigidJson.forEach((item) => {
             if (item.tank && map[item.tank]) {
-              // Parse setPoint which might be a JSON string or a number string
               let sp = item.setPoint
               try {
                 const parsed = JSON.parse(item.setPoint)
-                if (parsed.value !== undefined) {
-                  sp = parseFloat(parsed.value)
-                }
+                if (parsed.value !== undefined) sp = parseFloat(parsed.value)
               } catch {
                 sp = parseFloat(item.setPoint)
               }
@@ -367,7 +357,7 @@ export default function Home() {
         console.warn('⚠️ Error fetching /api/frigid, continuing without temp:', e)
       }
 
-      // 4) Remove duplicate batches (same as before)
+      // ─── Remove duplicate batches ────────────────────────────────────────
       const byBatch = {}
       Object.values(map).forEach((e) => {
         if (e.batch) {
@@ -404,17 +394,41 @@ export default function Home() {
           : tanks.reduce((o, t) => ({ ...o, [t]: 0 }), {})
       )
     } catch (e) {
-      console.error('❌ fetchData() caught:', e)
+      console.error('❌ fetchDashboardData() caught:', e)
       setError(true)
     }
   }, [])
 
-  // auto‐refresh every 3h
+  // ─── “Refresh” button handler: call Apps Script first, then update dashboard ───
+  const handleRefreshClick = async () => {
+    try {
+      // 1) Trigger Apps Script to rebuild Master sheet
+      const scriptRes = await fetch(APPS_SCRIPT_URL)
+      if (!scriptRes.ok) {
+        const body = await scriptRes.text()
+        console.error('Apps Script Web App failed:', scriptRes.status, body)
+        throw new Error('Failed to refresh Master sheet via Apps Script')
+      }
+      const scriptJson = await scriptRes.json()
+      if (scriptJson.status !== 'ok') {
+        console.error('Apps Script returned error:', scriptJson)
+        throw new Error('Apps Script error: ' + scriptJson.message)
+      }
+      // 2) Once Master sheet is updated, fetch dashboard data
+      await fetchDashboardData()
+    } catch (e) {
+      console.error('❌ handleRefreshClick() caught:', e)
+      setError(true)
+    }
+  }
+
+  // ─── On mount: fetch full dashboard data once ───────────────────────────────
   useEffect(() => {
-    fetchData()
-    const id = setInterval(fetchData, 3 * 60 * 60 * 1000)
+    fetchDashboardData()
+    // 3-hour auto-refresh but only for dashboard data (no Apps Script)
+    const id = setInterval(fetchDashboardData, 3 * 60 * 60 * 1000)
     return () => clearInterval(id)
-  }, [fetchData])
+  }, [fetchDashboardData])
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleAddDex = (tank) =>
@@ -918,7 +932,7 @@ export default function Home() {
       {/* Refresh Button */}
       <div style={{ textAlign: 'center', padding: '10px 0 20px' }}>
         <button
-          onClick={fetchData}
+          onClick={handleRefreshClick}
           style={{
             fontSize: '16px',
             padding: '10px 20px',
