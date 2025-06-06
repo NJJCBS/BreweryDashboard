@@ -12,7 +12,7 @@ import {
   Legend
 } from 'chart.js'
 
-// Client‐only React wrapper for Chart.js
+// Client-only React wrapper for Chart.js
 const Line = dynamic(
   () => import('react-chartjs-2').then(m => m.Line),
   { ssr: false }
@@ -33,7 +33,8 @@ const makeEmptyEntry = (tankName, lastUpdate = new Date()) => ({
   carb: null,
   dox: null,
   totalVolume: 0,
-  temperature: null,       // <-- temperature field
+  temperature: null,
+  setPoint: null,
   lastUpdate
 })
 
@@ -111,7 +112,10 @@ export default function Home() {
           const frigidJson = await frigidProxy.json()
           frigidJson.forEach(item => {
             if (item.tank) {
-              tempMap[item.tank] = parseFloat(item.temperature)
+              tempMap[item.tank] = {
+                temperature: parseFloat(item.temperature),
+                setPoint: parseFloat(item.setPoint)
+              }
             }
           })
         } else {
@@ -119,10 +123,10 @@ export default function Home() {
         }
       } catch (e) {
         console.error('Error fetching /api/frigid:', e)
-        // leave tempMap empty—no temperature data
+        // leave tempMap empty
       }
 
-      // 3) Assemble per‐tank data
+      // 3) Assemble per-tank data
       const tanks = [
         'FV1',
         'FV2',
@@ -154,7 +158,7 @@ export default function Home() {
           return
         }
 
-        // 3b) brewing‐day entries (grab every “Brewing Day Data” row for this FV)
+        // 3b) brewing-day entries (grab every “Brewing Day Data” row for this FV)
         const brewRows = all
           .filter(
             e =>
@@ -182,7 +186,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3c) transfer‐data entries
+        // 3c) transfer-data entries
         const xferRows = all
           .filter(
             e =>
@@ -261,7 +265,7 @@ export default function Home() {
           .filter(h => !isNaN(h.p))
           .sort((a, b) => a.date - b.date)
         const lastPH = pHHistory.length
-          ? pHHistory[pHHistory.length - 1].p
+          ? pHHistory[pHistory.length - 1].p
           : null
 
         // defaults
@@ -319,9 +323,11 @@ export default function Home() {
           }
         }
 
-        // get temperature if available
+        // get temperature+setPoint if available
         const temperature =
-          tempMap[name] !== undefined ? tempMap[name] : null
+          tempMap[name] !== undefined ? tempMap[name].temperature : null
+        const setPoint =
+          tempMap[name] !== undefined ? tempMap[name].setPoint : null
 
         map[name] = {
           tank: name,
@@ -337,7 +343,8 @@ export default function Home() {
           carb,
           dox,
           totalVolume,
-          temperature, // <-- attach temperature here
+          temperature,
+          setPoint,
           lastUpdate
         }
       })
@@ -384,7 +391,7 @@ export default function Home() {
     }
   }, [])
 
-  // auto‐refresh every 3h
+  // auto-refresh every 3h
   useEffect(() => {
     fetchData()
     const id = setInterval(fetchData, 3 * 60 * 60 * 1000)
@@ -549,7 +556,8 @@ export default function Home() {
             carb,
             dox,
             totalVolume,
-            temperature // <-- Destructure temperature
+            temperature,
+            setPoint
           } = e
 
           // ABV
@@ -629,7 +637,7 @@ export default function Home() {
                 (e.currentTarget.style.transform = 'translateY(0)')
               }
             >
-              {/* small clear‐tile button (half size) */}
+              {/* small clear-tile button (half size) */}
               <button
                 onClick={() => handleClear(tank)}
                 style={{
@@ -638,7 +646,7 @@ export default function Home() {
                   right: '4px',
                   background: 'transparent',
                   border: 'none',
-                  fontSize: '8px', /* half of 16px */
+                  fontSize: '8px',
                   cursor: 'pointer'
                 }}
               >
@@ -722,13 +730,30 @@ export default function Home() {
                     </p>
                   )}
 
-                  {/* ─── Insert temperature display here ─────────────────── */}
-                  {temperature !== null && (
+                  {/* ─── Display Actual Temp and Set Temp ─────────────────────── */}
+                  {temperature !== null && setPoint !== null && (
                     <p>
-                      <strong>Temp:</strong> {temperature.toFixed(1)} °C
+                      <a
+                        href="https://app.frigid.cloud/app/dashboard"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontWeight: 'bold', color: 'black', textDecoration: 'none' }}
+                      >
+                        Actual Temp:
+                      </a>{' '}
+                      {temperature.toFixed(1)}°C{'  '}
+                      <a
+                        href="https://app.frigid.cloud/app/dashboard"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontWeight: 'bold', color: 'black', textDecoration: 'none' }}
+                      >
+                        Set Temp:
+                      </a>{' '}
+                      {setPoint.toFixed(1)}°C
                     </p>
                   )}
-                  {/* ──────────────────────────────────────────────────────── */}
+                  {/* ───────────────────────────────────────────────────────────── */}
 
                   {/* Controls: Add Dex, count, trash, fruit, + */}
                   <div
