@@ -33,6 +33,7 @@ const makeEmptyEntry = (tankName, lastUpdate = new Date()) => ({
   carb: null,
   dox: null,
   totalVolume: 0,
+  temperature: null,       // <-- Add a temperature field
   lastUpdate
 })
 
@@ -84,6 +85,7 @@ export default function Home() {
   // ─── Fetch & assemble dashboard data ────────────────────────────────────────
   const fetchData = useCallback(async () => {
     try {
+      // 1) Fetch Google Sheets data
       const sheetId = '1Ajtr8spY64ctRMjd6Z9mfYGTI1f0lJMgdIm8CeBnjm0'
       const range = 'A1:ZZ1000'
       const apiKey = 'AIzaSyDIcqb7GydD5J5H9O_psCdL1vmH5Lka4l8'
@@ -101,6 +103,22 @@ export default function Home() {
         return o
       })
 
+      // 2) Fetch Frigid API to get temperature readings
+      const frigidRes = await fetch('https://api2.frigid.cloud/batch/list', {
+        headers: {
+          'x-api-key': 'ry4b0gkex3hzv71apg84m183g0ibm0slel3hegff'
+        }
+      })
+      const frigidJson = await frigidRes.json()
+      // Build a map: tankName → latest temperature (in °C)
+      const tempMap = {}
+      frigidJson.forEach(item => {
+        if (item.tank) {
+          tempMap[item.tank] = parseFloat(item.temperature)
+        }
+      })
+
+      // 3) Assemble per-tank data
       const tanks = [
         'FV1',
         'FV2',
@@ -119,7 +137,7 @@ export default function Home() {
       const map = {}
 
       tanks.forEach(name => {
-        // 1) packaging → empty
+        // 3a) packaging → empty
         const ferRows = all.filter(e => e['Daily_Tank_Data.FVFerm'] === name)
         const packaging = ferRows.find(
           e =>
@@ -132,7 +150,7 @@ export default function Home() {
           return
         }
 
-        // 2) brewing-day entries (initial: grab every “Brewing Day Data” row for this FV)
+        // 3b) brewing-day entries (grab every “Brewing Day Data” row for this FV)
         const brewRows = all
           .filter(
             e =>
@@ -162,7 +180,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3) transfer-data entries
+        // 3c) transfer-data entries
         const xferRows = all
           .filter(
             e =>
@@ -173,7 +191,7 @@ export default function Home() {
           )
           .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 4) pick newest overall (could be fermentation, brewing, or transfer)
+        // 3d) pick newest overall (could be fermentation, brewing, or transfer)
         const ferRowsForSort = all
           .filter(e => e['Daily_Tank_Data.FVFerm'] === name)
           .map(e => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
@@ -284,9 +302,7 @@ export default function Home() {
           if (raw.toLowerCase().includes('brite')) {
             carb = rec['Daily_Tank_Data.Bright_Tank_CarbonationFerm'] || ''
             dox = rec['Daily_Tank_Data.Bright_Tank_Dissolved_OxygenFerm'] || ''
-            const t = all.find(
-              e => e.EX === batch && e['Transfer_Data.Final_Tank_Volume']
-            )
+            const t = all.find(e => e.EX === batch && e['Transfer_Data.Final_Tank_Volume'])
             bbtVol = t ? t['Transfer_Data.Final_Tank_Volume'] : ''
             totalVolume = parseFloat(bbtVol) || 0
           } else {
@@ -298,6 +314,9 @@ export default function Home() {
               )
           }
         }
+
+        // get temperature if available
+        const temperature = tempMap[name] !== undefined ? tempMap[name] : null
 
         map[name] = {
           tank: name,
@@ -313,6 +332,7 @@ export default function Home() {
           carb,
           dox,
           totalVolume,
+          temperature,    // <-- attach temperature here
           lastUpdate
         }
       })
@@ -523,7 +543,8 @@ export default function Home() {
             bbtVol,
             carb,
             dox,
-            totalVolume
+            totalVolume,
+            temperature     // <-- Destructure temperature
           } = e
 
           // ABV
@@ -695,6 +716,14 @@ export default function Home() {
                       <strong>ABV:</strong> {finalABV}%
                     </p>
                   )}
+
+                  {/* ─── Insert temperature display here ─────────────────── */}
+                  {temperature !== null && (
+                    <p>
+                      <strong>Temp:</strong> {temperature.toFixed(1)} °C
+                    </p>
+                  )}
+                  {/* ──────────────────────────────────────────────────────── */}
 
                   {/* Controls: Add Dex, count, trash, fruit, + */}
                   <div
