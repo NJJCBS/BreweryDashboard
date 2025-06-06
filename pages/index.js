@@ -12,7 +12,7 @@ import {
   Legend
 } from 'chart.js'
 
-// Client-only React wrapper for Chart.js
+// Client‐only React wrapper for Chart.js
 const Line = dynamic(
   () => import('react-chartjs-2').then(m => m.Line),
   { ssr: false }
@@ -93,9 +93,17 @@ export default function Home() {
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?key=${apiKey}`
 
       const res = await fetch(url)
+      if (!res.ok) {
+        const text = await res.text()
+        console.error('❌ Sheets responded', res.status, text)
+        throw new Error('Sheets fetch error')
+      }
       const json = await res.json()
       const rows = json.values
-      if (!rows || rows.length < 2) throw new Error('No data in Sheets')
+      if (!rows || rows.length < 2) {
+        console.error('❌ Sheets returned too few rows')
+        throw new Error('No data in Sheets')
+      }
 
       const headers = rows[0]
       const all = rows.slice(1).map(r => {
@@ -108,25 +116,36 @@ export default function Home() {
       let tempMap = {}
       try {
         const frigidProxy = await fetch('/api/frigid')
-        if (frigidProxy.ok) {
-          const frigidJson = await frigidProxy.json()
-          frigidJson.forEach(item => {
-            if (item.tank) {
-              tempMap[item.tank] = {
-                temperature: parseFloat(item.temperature),
-                setPoint: parseFloat(item.setPoint)
-              }
-            }
-          })
-        } else {
-          console.warn('Warning: /api/frigid returned', frigidProxy.status)
+        if (!frigidProxy.ok) {
+          const errBody = await frigidProxy.text()
+          console.error('❌ /api/frigid responded', frigidProxy.status, errBody)
+          throw new Error('/api/frigid error')
         }
-      } catch (e) {
-        console.error('Error fetching /api/frigid:', e)
-        // leave tempMap empty
+        const frigidJson = await frigidProxy.json()
+        frigidJson.forEach(item => {
+          if (item.tank) {
+            // Some setPoint fields are JSON strings, so attempt parsing:
+            let sp = item.setPoint
+            try {
+              const parsed = JSON.parse(item.setPoint)
+              if (parsed.value !== undefined) {
+                sp = parseFloat(parsed.value)
+              }
+            } catch {
+              sp = parseFloat(item.setPoint)
+            }
+            tempMap[item.tank] = {
+              temperature: parseFloat(item.temperature),
+              setPoint: isNaN(sp) ? null : sp
+            }
+          }
+        })
+      } catch (frErr) {
+        console.error('❌ Fetching /api/frigid failed:', frErr)
+        throw frErr
       }
 
-      // 3) Assemble per-tank data
+      // 3) Assemble per‐tank data
       const tanks = [
         'FV1',
         'FV2',
@@ -158,7 +177,7 @@ export default function Home() {
           return
         }
 
-        // 3b) brewing-day entries (grab every “Brewing Day Data” row for this FV)
+        // 3b) brewing‐day entries (grab every “Brewing Day Data” row for this FV)
         const brewRows = all
           .filter(
             e =>
@@ -169,7 +188,6 @@ export default function Home() {
           )
           .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // TEMP LOG: inspect all “Brewing Day Data” rows
         console.log(
           `>>> brewRows for tank ${name}:`,
           brewRows.map(r => ({
@@ -186,7 +204,7 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 3c) transfer-data entries
+        // 3c) transfer‐data entries
         const xferRows = all
           .filter(
             e =>
@@ -265,7 +283,7 @@ export default function Home() {
           .filter(h => !isNaN(h.p))
           .sort((a, b) => a.date - b.date)
         const lastPH = pHHistory.length
-          ? pHHistory[pHistory.length - 1].p
+          ? pHHistory[pHHistory.length - 1].p
           : null
 
         // defaults
@@ -386,12 +404,12 @@ export default function Home() {
           : tanks.reduce((o, t) => ({ ...o, [t]: 0 }), {})
       )
     } catch (e) {
-      console.error('Error in fetchData():', e)
+      console.error('❌ fetchData() caught:', e)
       setError(true)
     }
   }, [])
 
-  // auto-refresh every 3h
+  // auto‐refresh every 3h
   useEffect(() => {
     fetchData()
     const id = setInterval(fetchData, 3 * 60 * 60 * 1000)
@@ -637,7 +655,7 @@ export default function Home() {
                 (e.currentTarget.style.transform = 'translateY(0)')
               }
             >
-              {/* small clear-tile button (half size) */}
+              {/* small clear‐tile button */}
               <button
                 onClick={() => handleClear(tank)}
                 style={{
