@@ -13,7 +13,7 @@ import {
 } from 'chart.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1) Apps Script Web App URL (runs pullRecentSheets on the Master sheet)
+// Apps Script Web App URL (runs pullRecentSheets on the Master sheet)
 // ─────────────────────────────────────────────────────────────────────────────
 const APPS_SCRIPT_URL =
   'https://script.google.com/macros/s/AKfycbyNdtYSZ2flZliWUVM6az4G5WrjmjhM-80SqG1XAedkBYg8XV-v2Fc97F99G3TH6dPj/exec'
@@ -124,82 +124,99 @@ export default function Home() {
 
       // Assemble per‐tank data
       const tanks = [
-        'FV1', 'FV2', 'FV3', 'FV4', 'FV5', 'FV6', 'FV7',
-        'FV8', 'FV9', 'FV10', 'FVL1', 'FVL2', 'FVL3'
+        'FV1','FV2','FV3','FV4','FV5','FV6','FV7',
+        'FV8','FV9','FV10','FVL1','FVL2','FVL3'
       ]
       const map = {}
 
-      tanks.forEach((name) => {
-        // 1) Find all “transfer data” rows for this tank, sorted by date
-        const transferRows = all
-          .filter(
-            (e) =>
-              e['What_are_you_filling_out_today_']
-                .toLowerCase()
-                .includes('transfer data') &&
-              e['Transfer_Data.BTTrans'] === name
-          )
-          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
-          .sort((a, b) => b.d - a.d) // descending by date
+      // Prebuild a Frigid temperature map so we can attach .temperature/.setPoint later
+      let tempMap = {}
+      try {
+        const frigidProxy = await fetch('/api/frigid')
+        if (frigidProxy.ok) {
+          const frigidJson = await frigidProxy.json()
+          frigidJson.forEach((item) => {
+            if (item.tank) {
+              let sp = item.setPoint
+              try {
+                const parsed = JSON.parse(item.setPoint)
+                if (parsed.value !== undefined) sp = parseFloat(parsed.value)
+              } catch {
+                sp = parseFloat(item.setPoint)
+              }
+              const spNum = isFinite(parseFloat(sp)) ? parseFloat(sp) : null
+              tempMap[item.tank] = {
+                temperature: parseFloat(item.temperature),
+                setPoint: spNum
+              }
+            }
+          })
+        }
+      } catch {
+        // ignore Frigid errors here; we’ll attach nulls if missing
+      }
 
-        // 2) Find all packaging rows (fermentation rows with packaging)
+      tanks.forEach((name) => {
+        // 1) Check for “Packaging Data”
         const ferRows = all.filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
-        const packagingRows = ferRows.filter((e) =>
+        const packaging = ferRows.find((e) =>
           e['What_are_you_filling_out_today_']
             .toLowerCase()
             .includes('packaging data')
         )
-        // If any packaging, pick the most recent packaging
-        let mostRecentPackagingDate = null
-        if (packagingRows.length) {
-          packagingRows.sort((a, b) =>
-            parseDate(b.DateFerm) - parseDate(a.DateFerm)
-          )
-          mostRecentPackagingDate = parseDate(packagingRows[0].DateFerm)
-        }
 
-        // 3) If packaging exists, check if most recent transfer row is newer
-        if (mostRecentPackagingDate) {
-          const latestTrans = transferRows[0] || null
-          if (
-            latestTrans &&
-            latestTrans.d > mostRecentPackagingDate &&
-            latestTrans.EX &&
-            latestTrans.EX.toLowerCase().includes('split')
-          ) {
-            // Transfer is newer than packaging AND EX contains “split” → Brite
-            map[name] = {
-              tank: name,
-              batch: latestTrans.EX,
-              sheetUrl: latestTrans.EY || '',
-              stage: latestTrans['What_are_you_filling_out_today_'],
-              isEmpty: false,
-              baseAvgOE: null,
-              history: [],
-              brewFallbackPH: null,
-              pHValue: null,
-              bbtVol:
-                parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
-                0,
-              carb: latestTrans['Transfer_Data.Final_Tank_CO2_Carbonation'],
-              dox:
-                latestTrans['Transfer_Data.Final_Tank_Dissolved_Oxygen'],
-              totalVolume:
-                parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
-                0,
-              temperature: tempMap[name]?.temperature || null,
-              setPoint: tempMap[name]?.setPoint || null,
-              lastUpdate: latestTrans.d
+        if (packaging) {
+          // Before marking empty, check for a “split” transfer row
+          const transferRows = all
+            .filter(
+              (e) =>
+                e['What_are_you_filling_out_today_']
+                  .toLowerCase()
+                  .includes('transfer data') &&
+                e['Transfer_Data.BTTrans'] === name
+            )
+            .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
+
+          if (transferRows.length) {
+            // Pick the most recent transfer row
+            transferRows.sort((a, b) => b.d - a.d)
+            const latestTrans = transferRows[0]
+            // If its EX (file name) contains “split”
+            if (
+              latestTrans.EX &&
+              latestTrans.EX.toLowerCase().includes('split')
+            ) {
+              map[name] = {
+                tank: name,
+                batch: latestTrans.EX,
+                sheetUrl: latestTrans.EY || '',
+                stage: latestTrans['What_are_you_filling_out_today_'],
+                isEmpty: false,
+                baseAvgOE: null,
+                history: [],
+                brewFallbackPH: null,
+                pHValue: null,
+                bbtVol:
+                  parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
+                  0,
+                carb: latestTrans['Transfer_Data.Final_Tank_CO2_Carbonation'],
+                dox: latestTrans['Transfer_Data.Final_Tank_Dissolved_Oxygen'],
+                totalVolume:
+                  parseFloat(latestTrans['Transfer_Data.Final_Tank_Volume']) ||
+                  0,
+                temperature: tempMap[name]?.temperature || null,
+                setPoint: tempMap[name]?.setPoint || null,
+                lastUpdate: latestTrans.d
+              }
+              return
             }
-            return
           }
-          // Otherwise, packaging is the latest relevant event → truly empty
-          map[name] = makeEmptyEntry(name, mostRecentPackagingDate)
+          // Otherwise, truly empty
+          map[name] = makeEmptyEntry(name, parseDate(packaging.DateFerm))
           return
         }
 
-        // 4) No packaging → proceed with normal “find latest among fer/brew/xfer”
-        // 4a) brewing-day entries
+        // 2) Brewing‐day entries
         const brewRows = all
           .filter(
             (e) =>
@@ -210,6 +227,15 @@ export default function Home() {
           )
           .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
+        console.log(
+          `>>> brewRows for tank ${name}:`,
+          brewRows.map((r) => ({
+            batch: r.EX,
+            date: r.DateFerm,
+            volume: r['Brewing_Day_Data.Volume_into_FV']
+          }))
+        )
+
         let brewFallbackPH = null
         if (brewRows.length) {
           brewRows.sort((a, b) => b.d - a.d)
@@ -217,16 +243,24 @@ export default function Home() {
             parseFloat(brewRows[0]['Brewing_Day_Data.Final_FV_pH']) || null
         }
 
-        // 4b) transfer-data entries (already in transferRows sorted)
-        // (We reuse transferRows array; no need to re-fetch)
+        // 3) Transfer‐data entries
+        const xferRows = all
+          .filter(
+            (e) =>
+              e['What_are_you_filling_out_today_']
+                .toLowerCase()
+                .includes('transfer data') &&
+              e['Transfer_Data.BTTrans'] === name
+          )
+          .map((e) => ({ ...e, d: parseDate(e.DateFerm) }))
 
-        // 4c) fermentation rows for sorting
+        // 4) Pick newest overall (fermentation, brewing, or transfer)
         const ferRowsForSort = all
           .filter((e) => e['Daily_Tank_Data.FVFerm'] === name)
           .map((e) => ({ ...e, _type: 'fer', d: parseDate(e.DateFerm) }))
 
         const brewRowsForSort = brewRows.map((e) => ({ ...e, _type: 'brew' }))
-        const xferRowsForSort = transferRows.map((e) => ({ ...e, _type: 'xfer' }))
+        const xferRowsForSort = xferRows.map((e) => ({ ...e, _type: 'xfer' }))
 
         const candidates = [
           ...ferRowsForSort,
@@ -261,7 +295,7 @@ export default function Home() {
         }
         // ───────────────────────────────────────────────────────────────
 
-        // build gravity history & baseAvgOE
+        // Build gravity history & baseAvgOE
         const history = all
           .filter((e) => e.EX === batch && e['Daily_Tank_Data.GravityFerm'])
           .map((e) => ({
@@ -281,7 +315,7 @@ export default function Home() {
           ? OEs.reduce((a, b) => a + b, 0) / OEs.length
           : null
 
-        // build pH history
+        // Build pH history
         const pHHistory = all
           .filter((e) => e.EX === batch && e['Daily_Tank_Data.pHFerm'])
           .map((e) => ({
@@ -294,7 +328,7 @@ export default function Home() {
           ? pHHistory[pHHistory.length - 1].p
           : null
 
-        // defaults
+        // Defaults
         let stage = ''
         let pHValue = null
         let carb = null,
@@ -302,7 +336,7 @@ export default function Home() {
         let bbtVol = null
         let totalVolume = 0
 
-        // a) transfer data → “Brite”
+        // a) Transfer data → “Brite”
         if (rec._type === 'xfer') {
           stage = 'Brite'
           carb = rec['Transfer_Data.Final_Tank_CO2_Carbonation'] || ''
@@ -310,7 +344,7 @@ export default function Home() {
           bbtVol = rec['Transfer_Data.Final_Tank_Volume'] || ''
           totalVolume = parseFloat(bbtVol) || 0
         }
-        // b) brewing day
+        // b) Brewing day
         else if (rec._type === 'brew') {
           stage = 'Brewing Day Data'
           const brewRowsForBatch = brewRows.filter((e) => e.EX === batch)
@@ -321,7 +355,7 @@ export default function Home() {
           )
           pHValue = brewFallbackPH
         }
-        // c) fermentation / daily / crashed / D.H.
+        // c) Fermentation / daily / crashed / D.H.
         else {
           const raw =
             rec['Daily_Tank_Data.What_Stage_in_the_Product_in_'] || ''
@@ -367,35 +401,6 @@ export default function Home() {
           lastUpdate
         }
       })
-
-      // ─── Fetch Frigid data (but do NOT abort if this fails) ──────────────
-      try {
-        const frigidProxy = await fetch('/api/frigid')
-        if (frigidProxy.ok) {
-          const frigidJson = await frigidProxy.json()
-          frigidJson.forEach((item) => {
-            if (item.tank && map[item.tank]) {
-              let sp = item.setPoint
-              try {
-                const parsed = JSON.parse(item.setPoint)
-                if (parsed.value !== undefined) sp = parseFloat(parsed.value)
-              } catch {
-                sp = parseFloat(item.setPoint)
-              }
-              const spNum = isFinite(parseFloat(sp)) ? parseFloat(sp) : null
-              map[item.tank].temperature = parseFloat(item.temperature)
-              map[item.tank].setPoint = spNum
-            }
-          })
-        } else {
-          console.warn(
-            '⚠️ /api/frigid returned non-200 status:',
-            frigidProxy.status
-          )
-        }
-      } catch (e) {
-        console.warn('⚠️ Error fetching /api/frigid, continuing without temp:', e)
-      }
 
       // ─── Remove duplicate batches ────────────────────────────────────────
       const byBatch = {}
@@ -846,7 +851,7 @@ export default function Home() {
                       onClick={() => handleAddDex(tank)}
                       style={{
                         height: '28px',
-                        minWidth: '60px',
+                        minWidth: '60px',  
                         fontSize: '12px',
                         padding: '0 4px'
                       }}
