@@ -132,16 +132,27 @@ export default function Home() {
           return
         }
 
-        // 2) brewing‐day entries
-        const brewRows = all
-          .filter(
-            e =>
-              e['What_are_you_filling_out_today_']
-                .toLowerCase()
-                .includes('brewing day data') &&
-              e['Brewing_Day_Data.FV_Tank'] === name
-          )
-          .map(e => ({ ...e, d: parseDate(e.DateFerm) }))
+// 2) brewing‐day entries
+const brewRows = all
+  .filter(e =>
+    e['What_are_you_filling_out_today_']
+      .toLowerCase()
+      .includes('brewing day data') &&
+    e['Brewing_Day_Data.FV_Tank'] === name
+  )
+  .map(e => ({ ...e, d: parseDate(e.DateFerm) }));
+
+// —────────────────────────────────────────────────────────────────
+// TEMPORARY LOG: print out every “Brewing Day Data” row for FV “name”
+console.log(
+  `>>> brewRows for tank ${name}:`,
+  brewRows.map(r => ({
+    batch: r.EX,
+    date: r.DateFerm,
+    volume: r['Brewing_Day_Data.Volume_into_FV']
+  }))
+);
+// —────────────────────────────────────────────────────────────────
         let brewFallbackPH = null
         if (brewRows.length) {
           brewRows.sort((a, b) => b.d - a.d)
