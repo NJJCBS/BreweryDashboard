@@ -308,22 +308,32 @@ export default function Home() {
           lastUpdate,
           // ← These two ensure footer shows the exact rec used:
           let person = ''  
-if (rec._type === 'brew') {
-  // Brewing Day Data → use AH column
-  person = rec['Brewing_Day_Data.Signed_off_by'] || ''
-} else if (rec._type === 'xfer') {
-  // Transfer Data → use BX column
-  person = rec['Transfer_Data.Signed_off_by'] || ''
-} else {
-  // Fermentation → use Daily_Tank_Data column
-  person = rec['Daily_Tank_Data.Signed_off_by'] || ''
-}
+          if (rec._type === 'brew') {
 
-map[name] = {
-  // … all the other props you already have …
-  rawDate: rec.DateFerm,
-  person
-}
+            // Brewing Day Data → use AH column
+
+            person = rec['Brewing_Day_Data.Signed_off_by'] || ''
+
+          } else if (rec._type === 'xfer') {
+
+            // Transfer Data → use BX column
+
+            person = rec['Transfer_Data.Signed_off_by'] || ''
+          } else {
+
+            // Fermentation → use Daily_Tank_Data column
+
+            person = rec['Daily_Tank_Data.Signed_off_by'] || ''
+          }
+
+        map[name] = {
+
+          // … all the other props you already have …
+
+          rawDate: rec.DateFerm,
+
+          person
+        }
       })
 
 // ─── Final Frigid check (runs last) ─────────────────────────────────────
