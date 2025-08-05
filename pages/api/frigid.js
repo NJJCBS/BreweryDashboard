@@ -1,42 +1,28 @@
-// ─── Frigid: force any inactive tank → empty ─────────────────────────────
-try {
-  const resp = await fetch('/api/frigid')
-  if (!resp.ok) throw new Error(`frigid status ${resp.status}`)
-  const json = await resp.json()
+// pages/api/frigid.js
 
-  // 1) pick the actual array:
-  const list = Array.isArray(json)
-    ? json
-    : json.data   // if your API returns { data: […] }
-      || json.batches   // or { batches: […] }
-      || []
+export default async function handler(req, res) {
+  try {
+    const FRIGID_URL = 'https://api2.frigid.cloud/batch/list'
+    const API_KEY    = 'ry4b0gkex3hzv71apg84m183g0ibm0slel3hegff'
 
-  // 2) for each frigid item, mark map[tank].isEmpty = true if inactive
-  list.forEach(item => {
-    // adjust these keys to match your API:
-    const tankName = item.FV || item.tank || item.fv || item.name
-    const isActive = item.active !== undefined
-      ? item.active
-      : item.enabled    // or whichever field your API uses
+    // Fetch directly from Frigid on the server
+    const frigidRes = await fetch(FRIGID_URL, {
+      headers: { 'x-api-key': API_KEY }
+    })
 
-    if (!tankName || !map[tankName]) return
-
-    // if Frigid says “inactive” → empty the tile
-    if (isActive === false) {
-      map[tankName].isEmpty = true
+    if (!frigidRes.ok) {
+      const text = await frigidRes.text()
+      return res
+        .status(frigidRes.status)
+        .json({ error: `Frigid responded with ${frigidRes.status}: ${text}` })
     }
 
-    // parse actual temp
-    if (item.temperature != null) {
-      map[tankName].temperature = parseFloat(item.temperature)
-    }
-    // parse set-point
-    if (item.setPoint != null) {
-      map[tankName].setPoint = parseFloat(item.setPoint)
-    } else if (item.targetTemp != null) {
-      map[tankName].setPoint = parseFloat(item.targetTemp)
-    }
-  })
-} catch (e) {
-  console.warn('⚠️ Frigid fetch failed:', e)
+    const data = await frigidRes.json()
+    return res.status(200).json(data)
+  } catch (err) {
+    console.error('Error in /api/frigid:', err)
+    return res
+      .status(500)
+      .json({ error: 'Internal server error fetching Frigid.' })
+  }
 }
