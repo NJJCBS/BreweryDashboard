@@ -443,10 +443,61 @@ export default function Home() {
   return (
     <>
       {/* Detailed-chart modal */}
-      {modalChart && /* … unchanged … */}
+      {modalChart && (
+        <div style={{
+          position:'fixed', top:0, left:0,
+          width:'100%', height:'100%',
+          background:'rgba(0,0,0,0.5)',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          zIndex:1000
+        }}>
+          <div style={{
+            position:'relative',
+            background:'#fff',
+            padding:20,
+            borderRadius:8,
+            maxWidth:'90%', maxHeight:'90%',
+            overflow:'auto'
+          }}>
+            <button onClick={()=>setModalChart(null)} style={{
+              position:'absolute', top:10, right:10,
+              background:'transparent', border:'none',
+              fontSize:16, cursor:'pointer'
+            }}>✕</button>
+            <Line
+              data={{
+                labels: modalChart.labels,
+                datasets:[{
+                  label:'Gravity (°P)',
+                  data: modalChart.data,
+                  tension:0.4,
+                  fill:false
+                }]
+              }}
+              options={{
+                aspectRatio:2,
+                plugins:{
+                  legend:{display:false},
+                  tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} °P`}}
+                },
+                scales:{
+                  x:{title:{display:true,text:'Date'},grid:{display:true}},
+                  y:{beginAtZero:true,min:0,title:{display:true,text:'Gravity (°P)'},ticks:{callback:v=>v.toFixed(1)}}
+                }
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Dashboard grid */}
-      <div style={{/* …grid styles… */}}>
+      <div style={{
+        fontFamily:'Calibri, sans-serif',
+        display:'grid',
+        gridTemplateColumns:'repeat(auto-fill,minmax(250px,1fr))',
+        gap:'20px',
+        padding:'20px'
+      }}>
         {tankData.map(e=>{
           const {
             tank,batch,sheetUrl,stage,isEmpty,
@@ -455,46 +506,194 @@ export default function Home() {
             temperature,setPoint,rawDate,person
           } = e
 
-          // … ABV, dex, fruit, mini-chart setup …
+          // ABV calc
+          const dex = dexCounts[tank]||0
+          const HL  = (totalVolume||0)/1000
+          const incOE = baseAvgOE!==null
+            ? baseAvgOE + (HL>0?1.3/HL*dex:0)
+            : null
+          const curAE = history.length
+            ? history[history.length-1].g
+            : null
+          const displayAE = curAE!==null? curAE: baseAvgOE
+          const leg = incOE!==null&&displayAE!==null? calcLegacy(incOE,displayAE):null
+          const neu = incOE!==null&&displayAE!==null? calcNew(incOE,displayAE):null
+          const dexABV = leg!==null&&neu!==null? ((leg+neu)/2).toFixed(1):null
+
+          // fruit & volume
+          const fv  = fruitVolumes[tank]||0
+          const eff = fv*0.9
+          const baseV= stage.toLowerCase().includes('brite')
+            ? (parseFloat(bbtVol)||0)
+            : (totalVolume||0)
+          const dispV= baseV+eff
+          const finalABV = dexABV!==null
+            ? ((dexABV/100*baseV)/dispV*100).toFixed(1)
+            : null
+
+          // mini-chart labels & points
+          const labels = incOE!==null
+            ? ['OG',...history.map(h=>h.date.toLocaleDateString('en-AU'))]
+            : history.map(h=>h.date.toLocaleDateString('en-AU'))
+          const pts = incOE!==null
+            ? [incOE,...history.map(h=>h.g)]
+            : history.map(h=>h.g)
+
+          // styling
+          const style = {...baseTile}
+          const s = stage.toLowerCase()
+          if (isEmpty)                          { style.background='#fff'; style.border='1px solid #e0e0e0' }
+          else if (s.includes('crashed'))       { style.background='rgba(30,144,255,0.1)'; style.border='1px solid darkblue' }
+          else if (/d\.h|clean fusion/.test(s)) { style.background='rgba(34,139,34,0.1)'; style.border='1px solid darkgreen' }
+          else if (s.includes('fermentation'))  { style.background='rgba(210,105,30,0.1)'; style.border='1px solid maroon' }
+          else if (s.includes('brite'))         { style.background='#f0f0f0'; style.border='1px solid darkgrey' }
+          else                                   { style.border='1px solid #ccc' }
+
+          const volLabel = s.includes('brite') ? 'BBT Vol:' : 'Tank Vol:'
 
           return (
-            <div key={tank} style={baseTile} /*…*/>
-              {/* … header, stage, gravity, pH, volume … */}
+            <div key={tank}
+                 style={style}
+                 onMouseEnter={e=>e.currentTarget.style.transform='translateY(-4px)'}
+                 onMouseLeave={e=>e.currentTarget.style.transform='translateY(0)'}>
+              {/* small clear-tile button */}
+              <button onClick={()=>handleClear(tank)}
+                      style={{
+                        position:'absolute',
+                        top:'4px', right:'4px',
+                        background:'transparent',border:'none',
+                        fontSize:'8px',cursor:'pointer'
+                      }}>❌</button>
 
-              {/* ABV */}
-              {dexABV && <p><strong>ABV:</strong> {finalABV}%</p>}
+              <h3 style={{marginTop:0}}>
+                {tank}
+                {(!isEmpty && batch) && (
+                  <>
+                    {' – '}
+                    <a href={sheetUrl} target="_blank" rel="noopener noreferrer"
+                       style={{color:'#4A90E2',textDecoration:'none'}}>
+                      {batch.substring(0,25)}
+                    </a>
+                  </>
+                )}
+              </h3>
 
-              {/* ← NEW: Actual Temp / Set line */}
-              {typeof temperature === 'number' && typeof setPoint === 'number' && (
-                <p>
-                  <a
-                    href="https://app.frigid.cloud/app/dashboard"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ textDecoration:'none', color:'inherit' }}
-                  >
-                    <strong>Actual Temp:</strong> {temperature.toFixed(1)}°C&nbsp;&nbsp;
-                    <strong>Set:</strong> {setPoint.toFixed(1)}°C
-                  </a>
-                </p>
-              )}
+              {isEmpty
+                ? <p><strong>Empty</strong></p>
+                : (
+                  <>
+                    <p><strong>Stage:</strong> {stage||'N/A'}</p>
 
-              {/* fill-date & person */}
-              {rawDate && (
-                <p style={{fontSize:'10px',opacity:0.5,marginTop:'4px'}}>
-                  {formatFillDate(rawDate)} — {person}
-                </p>
-              )}
+                    {s.includes('brite') ? (
+                      <>
+                        <p><strong>Carb:</strong> {carb?`${parseFloat(carb).toFixed(2)} vols`:''}</p>
+                        <p><strong>D.O.:</strong> {dox?`${parseFloat(dox).toFixed(1)} ppb`:''}</p>
+                      </>
+                    ) : s==='brewing day data' ? (
+                      <>
+                        <p><strong>Gravity:</strong> {baseAvgOE!=null?`${baseAvgOE.toFixed(1)} °P`:''}</p>
+                        {brewFallbackPH!=null && <p><strong>pH:</strong> {brewFallbackPH.toFixed(1)} pH</p>}
+                      </>
+                    ) : (
+                      <>
+                        <p><strong>Gravity:</strong> {displayAE!=null?`${displayAE.toFixed(1)} °P`:''}</p>
+                        {pHValue!=null && <p><strong>pH:</strong> {pHValue.toFixed(1)} pH</p>}
+                      </>
+                    )}
 
-              {/* Controls & mini-chart */}
-              {/* … unchanged … */}
+                    <p><strong>{volLabel}</strong> {dispV.toFixed(1)} L</p>
+
+                    {/* ABV */}
+                    {finalABV && <p><strong>ABV:</strong> {finalABV}%</p>}
+
+                    {/* Actual Temp / Set (bold, same as ABV) */}
+                    {typeof temperature === 'number' && typeof setPoint === 'number' && (
+                      <p>
+                        <a
+                          href="https://app.frigid.cloud/app/dashboard"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ textDecoration:'none', color:'inherit' }}
+                        >
+                          <strong>Actual Temp:</strong> {temperature.toFixed(1)}°C&nbsp;&nbsp;
+                          <strong>Set:</strong> {setPoint.toFixed(1)}°C
+                        </a>
+                      </p>
+                    )}
+
+                    {/* fill-date & person */}
+                    {rawDate && (
+                      <p style={{fontSize:'10px',opacity:0.5,marginTop:'4px'}}>
+                        {formatFillDate(rawDate)} — {person}
+                      </p>
+                    )}
+
+                    {/* Controls */}
+                    <div style={{display:'flex',alignItems:'center',gap:'4px',marginTop:'8px'}}>
+                      <button onClick={()=>handleAddDex(tank)} style={{
+                        height:'28px',minWidth:'60px',fontSize:'12px',padding:'0 4px'
+                      }}>Add Dex</button>
+                      <span style={{
+                        display:'inline-block',height:'28px',minWidth:'24px',
+                        lineHeight:'28px',textAlign:'center',fontSize:'12px'
+                      }}>{dexCounts[tank]||0}</span>
+                      <button onClick={()=>{
+                          setDexCounts(dc=>({...dc,[tank]:0}))
+                          setFruitVolumes(fv=>({...fv,[tank]:0}))
+                        }} style={{
+                        height:'28px',width:'28px',background:'transparent',
+                        border:'none',fontSize:'14px',cursor:'pointer'
+                      }}>🗑️</button>
+                      <input type="text"
+                             placeholder="fruit"
+                             value={fruitInputs[tank]||''}
+                             onChange={e=>handleFruitChange(tank,e.target.value)}
+                             style={{
+                               height:'28px',width:'50px',fontSize:'12px',padding:'0 4px'
+                             }}/>
+                      <button onClick={()=>handleAddFruit(tank)} style={{
+                        height:'28px',width:'28px',fontSize:'12px',padding:'0'
+                      }}>+</button>
+                    </div>
+
+                    {/* Mini-chart */}
+                    {pts.length>1 && (
+                      <Line
+                        data={{ labels, datasets:[{ label:'Gravity (°P)', data:pts, tension:0.4, fill:false }] }}
+                        options={{
+                          aspectRatio:2,
+                          plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} °P`}} },
+                          scales:{
+                            x:{ticks:{display:false},grid:{display:true}},
+                            y:{beginAtZero:true,min:0,max:pts[0],ticks:{callback:v=>v.toFixed(1)}}
+                          }
+                        }}
+                        height={150}
+                        onClick={()=>setModalChart({labels,data:pts})}
+                      />
+                    )}
+                  </>
+                )}
             </div>
           )
         })}
       </div>
 
-      {/* Summary & Refresh button */}
-      {/* … unchanged … */}
+      {/* Summary */}
+      <div style={{fontFamily:'Calibri, sans-serif',padding:'0 20px 10px'}}>
+        <p>Empty tanks: {emptyCount}/{totalTanks}</p>
+        <p>Occupied tanks: {occupiedCount}/{totalTanks}</p>
+        <p>Total volume on site: {totalVolStr} L</p>
+      </div>
+
+      {/* Refresh Button */}
+      <div style={{textAlign:'center',padding:'10px 0 20px'}}>
+        <button onClick={handleRefreshClick} disabled={loading} style={{
+          fontSize:'16px',padding:'10px 20px',borderRadius:'4px',cursor:'pointer'
+        }}>
+          {loading ? '⏳ Refreshing…' : 'Refresh'}
+        </button>
+      </div>
     </>
   )
 }
