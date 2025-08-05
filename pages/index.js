@@ -312,41 +312,59 @@ export default function Home() {
         }
       })
 
-      // ─── Final Frigid check (runs last) ─────────────────────────────────────
-      try {
-        const resp = await fetch('/api/frigid')
-        if (resp.ok) {
-          let json = await resp.json()
-          const list = Array.isArray(json)
-            ? json
-            : json.data   || json.batches || []
-          list.forEach(item => {
-            const tnk = item.tank
-            if (!tnk || !map[tnk]) return
-            // inactive → force empty
-            if (item.active === false) {
-              map[tnk].isEmpty = true
-              map[tnk].batch   = ''
-            }
-            // parse temps
-            if (item.temperature != null) {
-              map[tnk].temperature = parseFloat(item.temperature)
-            }
-            if (item.setPoint != null) {
-              try {
-                const j = JSON.parse(item.setPoint)
-                map[tnk].setPoint = j.value!==undefined
-                  ? parseFloat(j.value)
-                  : parseFloat(item.setPoint)
-              } catch {
-                map[tnk].setPoint = parseFloat(item.setPoint)
-              }
-            }
-          })
-        }
-      } catch (e) {
-        console.warn('⚠️ Frigid fetch failed:', e)
+// ─── Final Frigid check (runs last) ─────────────────────────────────────
+try {
+  const resp = await fetch('/api/frigid')
+  if (resp.ok) {
+    let json = await resp.json()
+    // Normalize into an array
+    const list = Array.isArray(json)
+      ? json
+      : json.data   || json.batches || []
+
+    // Build a set of all tanks Frigid knows about
+    const frigidTanks = new Set(list.map(item => item.tank))
+
+    // First, mark any tank **not** in Frigid as empty
+    Object.keys(map).forEach(tankName => {
+      if (!frigidTanks.has(tankName)) {
+        map[tankName].isEmpty = true
+        map[tankName].batch   = ''
       }
+    })
+
+    // Then apply each Frigid item
+    list.forEach(item => {
+      const t = item.tank
+      if (!t || !map[t]) return
+
+      // If Frigid says “inactive” → empty
+      if (item.active === false) {
+        map[t].isEmpty = true
+        map[t].batch   = ''
+      } else {
+        // If it *is* active, we leave whatever the sheet logic set
+      }
+
+      // Parse temperature & setPoint as before
+      if (item.temperature != null) {
+        map[t].temperature = parseFloat(item.temperature)
+      }
+      if (item.setPoint != null) {
+        try {
+          const j = JSON.parse(item.setPoint)
+          map[t].setPoint = j.value !== undefined
+            ? parseFloat(j.value)
+            : parseFloat(item.setPoint)
+        } catch {
+          map[t].setPoint = parseFloat(item.setPoint)
+        }
+      }
+    })
+  }
+} catch (e) {
+  console.warn('⚠️ Frigid fetch failed:', e)
+}
 
       // ─── Deduplicate any duplicate batches ──────────────────────────────────
       const byBatch = {}
