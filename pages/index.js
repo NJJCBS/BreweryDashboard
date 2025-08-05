@@ -384,8 +384,8 @@ export default function Home() {
   // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleAddDex      = (tank) => setDexCounts(d=>({...d,[tank]:d[tank]+1}))
   const handleClear       = (tank) => {
-    setDexCounts(d=>({...d,[tank]:0]}))
-    setFruitVolumes(fv=>({...fv,[tank]:0]}))
+    setDexCounts(d=>({...d,[tank]:0}))
+    setFruitVolumes(fv=>({...fv,[tank]:0}))
     setFruitInputs(fi=>({...fi,[tank]:''}))
     setTankData(td=> td.map(e=> e.tank===tank ? makeEmptyEntry(tank) : e))
   }
