@@ -18,7 +18,7 @@ const APPS_SCRIPT_URL =
 
 // ─── PERSON FIELD (column BA) ───────────────────────────────────────────────
 // Change this to exactly what your row 1, column BA header cell reads.
-const PERSON_FIELD = 'Daily_Tank_Data.Fermented_By'
+const PERSON_FIELD = 'Daily_Tank_Data.Signed_off_by'
 
 // ─── Chart.js wrapper ────────────────────────────────────────────────────────
 const Line = dynamic(
