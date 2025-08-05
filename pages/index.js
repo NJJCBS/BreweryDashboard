@@ -282,11 +282,20 @@ export default function Home() {
           person = rec['Daily_Tank_Data.Signed_off_by'] || ''
         }
 
+        // --- FIXED: Use tank: name instead of shorthand ---
         map[name] = {
-          tank, batch, sheetUrl, stage,
-          isEmpty:false,
-          baseAvgOE, history, brewFallbackPH,
-          pHValue, bbtVol, carb, dox,
+          tank: name,
+          batch,
+          sheetUrl,
+          stage,
+          isEmpty: false,
+          baseAvgOE,
+          history,
+          brewFallbackPH,
+          pHValue,
+          bbtVol,
+          carb,
+          dox,
           totalVolume,
           temperature: null,
           setPoint: null,
@@ -296,12 +305,12 @@ export default function Home() {
         }
       })
 
-      // Frigid final check
+      // Final Frigid check
       try {
         const resp = await fetch('/api/frigid')
         if (resp.ok) {
           let json = await resp.json()
-          const list = Array.isArray(json)? json : json.data||json.batches||[]
+          const list = Array.isArray(json) ? json : json.data||json.batches||[]
           const frigidTanks = new Set(list.map(i=>i.tank))
           Object.keys(map).forEach(tn=>{
             if (!frigidTanks.has(tn)) {
@@ -322,7 +331,9 @@ export default function Home() {
             if (item.setPoint != null) {
               try {
                 const j = JSON.parse(item.setPoint)
-                map[t].setPoint = j.value!==undefined? parseFloat(j.value) : parseFloat(item.setPoint)
+                map[t].setPoint = j.value!==undefined
+                  ? parseFloat(j.value)
+                  : parseFloat(item.setPoint)
               } catch {
                 map[t].setPoint = parseFloat(item.setPoint)
               }
@@ -333,7 +344,7 @@ export default function Home() {
         console.warn('⚠️ Frigid fetch failed:', e)
       }
 
-      // Dedupe duplicate batches
+      // Deduplicate duplicate batches
       const byBatch = {}
       Object.values(map).forEach(e=>{
         if (e.batch) {
@@ -352,9 +363,9 @@ export default function Home() {
 
       setTankData(Object.values(map))
       setError(false)
-      setDexCounts(dc=> Object.keys(dc).length? dc : tanks.reduce((o,t)=>({...o,[t]:0}),{}))
-      setFruitInputs(fi=> Object.keys(fi).length? fi : tanks.reduce((o,t)=>({...o,[t]:''}),{}))
-      setFruitVolumes(fv=> Object.keys(fv).length? fv : tanks.reduce((o,t)=>({...o,[t]:0}),{}))
+      setDexCounts(dc=> Object.keys(dc).length ? dc : tanks.reduce((o,t)=>({...o,[t]:0}),{}))
+      setFruitInputs(fi=> Object.keys(fi).length ? fi : tanks.reduce((o,t)=>({...o,[t]:''}),{}))
+      setFruitVolumes(fv=> Object.keys(fv).length ? fv : tanks.reduce((o,t)=>({...o,[t]:0}),{}))
     }
     catch(e) {
       console.error('❌ fetchDashboardData:', e)
@@ -378,7 +389,7 @@ export default function Home() {
     setLoading(false)
   }
 
-  // On mount & auto 3h
+  // On mount & auto-refresh
   useEffect(()=>{
     fetchDashboardData()
     const id = setInterval(fetchDashboardData, 3*60*60*1000)
@@ -422,7 +433,7 @@ export default function Home() {
 
   return (
     <>
-      {/* Modal */}
+      {/* Detailed chart modal */}
       {modalChart && (
         <div style={{
           position:'fixed',top:0,left:0,
@@ -581,15 +592,15 @@ export default function Home() {
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
-                          display:        'block',
-                          textDecoration: 'none',
-                          color:          'inherit',
-                          margin:         '8px 0'
+                          display:'block',textDecoration:'none',
+                          color:'inherit',margin:'8px 0'
                         }}
                       >
-                        <p style={{ margin: 0, fontSize: '12px', fontWeight: 'bold' }}>
+                        <p style={{
+                          margin:0,fontSize:'12px',fontWeight:'bold'
+                        }}>
                           {temperature.toFixed(1)}°C{' '}
-                          <span style={{ fontWeight: 'normal' }}>
+                          <span style={{fontWeight:'normal'}}>
                             (set to {setPoint.toFixed(1)}°C)
                           </span>
                         </p>
@@ -601,32 +612,40 @@ export default function Home() {
                       display:'flex',alignItems:'center',gap:'4px',marginTop:'8px'
                     }}>
                       <button onClick={()=>handleAddDex(tank)}
-                              style={{height:'28px',minWidth:'60px',fontSize:'12px',padding:'0 4px'}}>
+                              style={{
+                                height:'28px',minWidth:'60px',
+                                fontSize:'12px',padding:'0 4px'
+                              }}>
                         Add Dex
                       </button>
                       <span style={{
-                        display:'inline-block',height:'28px',minWidth:'24px',
-                        lineHeight:'28px',textAlign:'center',fontSize:'12px'
+                        display:'inline-block',height:'28px',
+                        minWidth:'24px',lineHeight:'28px',
+                        textAlign:'center',fontSize:'12px'
                       }}>
                         {dexCounts[tank]||0}
                       </span>
-                      <button onClick={()=>{
-                          setDexCounts(dc=>({...dc,[tank]:0}))
-                          setFruitVolumes(fv=>({...fv,[tank]:0}))
-                        }}
-                        style={{
-                          height:'28px',width:'28px',background:'transparent',
-                          border:'none',fontSize:'14px',cursor:'pointer'
-                        }}>
+                      <button onClick={()=>{setDexCounts(dc=>({...dc,[tank]:0})); setFruitVolumes(fv=>({...fv,[tank]:0}))}}
+                              style={{
+                                height:'28px',width:'28px',
+                                background:'transparent',border:'none',
+                                fontSize:'14px',cursor:'pointer'
+                              }}>
                         🗑️
                       </button>
                       <input type="text" placeholder="fruit"
                              value={fruitInputs[tank]||''}
                              onChange={e=>handleFruitChange(tank,e.target.value)}
-                             style={{height:'28px',width:'50px',fontSize:'12px',padding:'0 4px'}}
+                             style={{
+                               height:'28px',width:'50px',
+                               fontSize:'12px',padding:'0 4px'
+                             }}
                       />
                       <button onClick={()=>handleAddFruit(tank)}
-                              style={{height:'28px',width:'28px',fontSize:'12px',padding:'0'}}>
+                              style={{
+                                height:'28px',width:'28px',
+                                fontSize:'12px',padding:'0'
+                              }}>
                         +
                       </button>
                     </div>
